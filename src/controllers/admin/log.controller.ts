@@ -3,15 +3,7 @@ import { Request, Response } from "express";
 
 export const getLogs = async (req: Request, res: Response) => {
   try {
-    const {
-      action,
-      method,
-      level,
-      page = 1,
-      limit = 50,
-      startDate,
-      endDate,
-    } = req.query;
+    const { action, method, level, page = 1, limit = 50, startDate, endDate, } = req.query;
 
     const query: any = {};
 

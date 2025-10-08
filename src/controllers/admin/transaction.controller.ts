@@ -6,16 +6,7 @@ import cloudinary from "../../utils/cloudinary";
 import { v4 as uuid } from 'uuid';
 
 export const getAllTransactions = async (req: AuthRequest, res: Response) => {
-  const {
-    userId,
-    type,
-    category,
-    startDate,
-    endDate,
-    keyword,
-    page = 1,
-    limit = 20,
-  } = req.query;
+  const {userId, type, category, startDate, endDate, keyword, page = 1,limit = 20,} = req.query;
 
   const query: any = {};
 
@@ -57,16 +48,7 @@ export const adminUpdateTransaction = async (req: AuthRequest, res: Response): P
 
   try {
     const { id } = req.params;
-    const {
-      amount,
-      type,
-      category,
-      note,
-      date,
-      isRecurring,
-      recurringDay,
-      existingImages,
-    } = req.body;
+    const { amount, type, category, note, date, isRecurring, recurringDay, existingImages } = req.body;
 
     let keepImages: string[] = [];
     if (existingImages) {

@@ -31,21 +31,21 @@ export const getMonthlyIncomeExpenseStats = async (req: Request, res: Response) 
   const stats = await Transaction.aggregate([
     {
       $match: {
-        date: { $gte: startOfYear, $lte: endOfYear }, // 👉 lọc theo "date"
+        date: { $gte: startOfYear, $lte: endOfYear }, 
       },
     },
     {
       $group: {
         _id: {
-          month: { $month: "$date" }, // 👉 nhóm theo tháng của "date"
-          type: "$type",              // "income" hoặc "expense"
+          month: { $month: "$date" }, 
+          type: "$type",              
         },
         total: { $sum: "$amount" },
       },
     },
     {
       $group: {
-        _id: "$_id.month", // gom lại theo tháng
+        _id: "$_id.month",
         income: {
           $sum: {
             $cond: [{ $eq: ["$_id.type", "income"] }, "$total", 0],
@@ -80,13 +80,13 @@ export const getMonthlyTransactionCount = async (req: Request, res: Response) =>
   try {
     const year = parseInt(req.query.year as string) || new Date().getFullYear();
 
-    const startOfYear = new Date(year, 0, 1);   // 01/01/yyyy
-    const endOfYear = new Date(year, 11, 31, 23, 59, 59); // 31/12/yyyy
+    const startOfYear = new Date(year, 0, 1);   
+    const endOfYear = new Date(year, 11, 31, 23, 59, 59);
 
     const stats = await Transaction.aggregate([
       {
         $match: {
-          date: { $gte: startOfYear, $lte: endOfYear }, // 🔍 dùng field "date"
+          date: { $gte: startOfYear, $lte: endOfYear }, // 
         },
       },
       {
@@ -100,7 +100,6 @@ export const getMonthlyTransactionCount = async (req: Request, res: Response) =>
       },
     ]);
 
-    // Đảm bảo đủ 12 tháng, nếu tháng nào không có giao dịch thì count = 0
     const result = Array.from({ length: 12 }, (_, i) => {
       const monthStat = stats.find((s) => s._id.month === i + 1);
       return {

@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import UserModel, { IUser } from '../models/User'; // ✅ import model
+import UserModel, { IUser } from '../models/User'; // 
 
 export interface AuthRequest extends Request {
   userId?: string;
@@ -24,7 +24,6 @@ export const requireAuth = async (
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id: string };
     req.userId = decoded.id;
 
-    // ✅ Truy vấn người dùng từ DB
     const user = await UserModel.findById(decoded.id).select('-password');
 
     if (!user) {
@@ -32,7 +31,7 @@ export const requireAuth = async (
         return;
     }
 
-    req.user = user; // ✅ gán vào request
+    req.user = user; // 
 
     next();
   } catch (error) {

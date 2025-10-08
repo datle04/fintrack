@@ -17,6 +17,7 @@
     "@emotion/react": "^11.14.0",
     "@emotion/server": "^11.11.0",
     "@faker-js/faker": "^9.9.0",
+    "axios": "^1.12.2",
     "bcrypt": "^6.0.0",
     "chart.js": "^4.5.0",
     "cloudinary": "^2.7.0",
@@ -27,6 +28,7 @@
     "ejs": "^3.1.10",
     "express": "^5.1.0",
     "express-response-formatter": "^2.0.2",
+    "franc": "^6.2.0",
     "helmet": "^8.1.0",
     "html2canvas": "^1.4.1",
     "jsonwebtoken": "^9.0.2",
@@ -34,6 +36,7 @@
     "morgan": "^1.10.0",
     "multer": "^2.0.1",
     "node-cron": "^4.1.1",
+    "node-fetch": "^3.3.2",
     "puppeteer": "^24.15.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -55,6 +58,7 @@
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "ts-node-dev": "^2.0.0",
+    "tsx": "^4.20.6",
     "typescript": "^5.8.3"
   }
 }

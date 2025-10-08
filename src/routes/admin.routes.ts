@@ -28,11 +28,6 @@ router.delete("/transactions/:id", TransactionController.deleteTransaction);
 router.get("/transactions/stats", TransactionController.getTransactionStats);
 router.put("/transactions/:id", upload.array('receiptImages', 5) ,TransactionController.adminUpdateTransaction);
 
-// Report management
-router.get("/reports", ReportController.getAllReports);
-router.get('/reports/:id', ReportController.getReportById);
-router.delete("/reports/:id", ReportController.deleteReport);
-
 // Dashboard
 router.get("/dashboard", DashboardController.getAdminDashboardStats);
 router.get('/dashboard/monthly-stats', DashboardController.getMonthlyIncomeExpenseStats);

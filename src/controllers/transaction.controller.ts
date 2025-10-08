@@ -5,6 +5,8 @@ import cloudinary from '../utils/cloudinary';
 import { v4 as uuid } from 'uuid';
 import { getLastDayOfMonth } from '../utils/getLastDayOfMonth';
 import { logAction } from '../utils/logAction';
+import { checkBudgetAlertForUser } from '../cron/checkBudgetAlertForUser';
+import axios from "axios";
 
 // CREATE
 export const createTransaction = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -100,6 +102,12 @@ export const createTransaction = async (req: AuthRequest, res: Response): Promis
       date
     });
 
+    if (tx.type === 'expense') {
+  const userId = typeof tx.user === 'object' ? tx.user.toString() : tx.user;
+  console.log('🚀 Gọi checkBudgetAlertForUser với userId:', userId);
+  await checkBudgetAlertForUser(userId);
+}
+
     await logAction(req, {
       action: "Create Transaction",
       statusCode: 201,
@@ -164,7 +172,7 @@ export const getTransactions = async (req: AuthRequest, res: Response) => {
     .sort({ date: -1 })
     .skip(skip)
     .limit(+limit) 
-    .lean(), // ⬅️ ép lấy raw object từ MongoDB
+    .lean(), // 
   Transaction.countDocuments(filter),
 ]);
 
@@ -219,8 +227,6 @@ export const getTransactionsByMonth = async (req: AuthRequest, res: Response) =>
 
 // UPDATE
 export const updateTransaction = async (req: AuthRequest, res: Response): Promise<any> => {
-  console.log("req.body", req.body);
-  console.log("req.files", req.files);
 
   try {
     const { id } = req.params;
@@ -232,10 +238,9 @@ export const updateTransaction = async (req: AuthRequest, res: Response): Promis
       date,
       isRecurring,
       recurringDay,
-      existingImages, // <-- từ frontend gửi lên: ảnh cũ muốn giữ lại
+      existingImages, 
     } = req.body;
 
-    // Ép existingImages thành mảng URL
     let keepImages: string[] = [];
     if (existingImages) {
       keepImages = Array.isArray(existingImages) ? existingImages : [existingImages];
@@ -263,7 +268,6 @@ export const updateTransaction = async (req: AuthRequest, res: Response): Promis
       return res.status(400).json({ message: "Ngày định kỳ không hợp lệ" });
     }
 
-    // Gộp ảnh cũ cần giữ + ảnh mới upload
     const finalImages = [...keepImages, ...newUploadedImages];
 
     const updatedTx = await Transaction.findOneAndUpdate(
@@ -346,3 +350,26 @@ export const getUsedCategories = async (req: AuthRequest, res: Response) => {
         res.status(500).json({ message: "Không thể lấy danh mục!", error});
     }   
 }
+
+export const getCategorySuggestion = async (note: string) => {
+  try {
+    const response = await axios.post(
+      "http://localhost:8000/predict",
+      { note },
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        timeout: 5000, // tránh bị treo nếu Flask chết
+      }
+    );
+
+    return response.data.category;
+  } catch (err: any) {
+    console.error("❌ Error when calling Flask /predict:", err.message);
+    if (err.response) {
+      console.error("Flask response:", err.response.data);
+    }
+    return "Khác"; // fallback category
+  }
+};

@@ -13,7 +13,6 @@ export const getNotifications = async (req: AuthRequest, res: Response) => {
 }
 
 export const markNotificationAsRead = async (req: AuthRequest, res: Response):Promise<void> => {
-    console.log("🔐 req.userId:", req.userId);
     try {
         const notificationId = req.params.id;
 

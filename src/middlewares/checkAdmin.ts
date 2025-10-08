@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { AuthRequest } from "./requireAuth"; // Bạn đã có middleware xác thực trước đó
+import { AuthRequest } from "./requireAuth"; 
 
 export const checkAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
   const user = req.user;

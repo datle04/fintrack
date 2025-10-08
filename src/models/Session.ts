@@ -1,4 +1,3 @@
-// models/Session.ts
 import mongoose from "mongoose";
 
 export interface SessionDocument extends Document {
@@ -13,7 +12,7 @@ const sessionSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   loginAt: { type: Date, required: true },
   logoutAt: { type: Date },
-  duration: { type: Number }, // tính bằng giây
+  duration: { type: Number }, 
 });
 
 export const SessionModel = mongoose.model("Session", sessionSchema);

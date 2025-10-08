@@ -4,15 +4,7 @@ import { logAction } from "../../utils/logAction";
 
 export const getAllUsers = async (req: Request, res: Response) => {
   try {
-    const {
-      id,
-      name,
-      email,
-      role,
-      isBanned,
-      page = 1,
-      limit = 10,
-    } = req.query;
+    const {id,name,email,role,isBanned,page = 1,limit = 10,} = req.query;
 
     const query: any = {};
 
@@ -20,7 +12,6 @@ export const getAllUsers = async (req: Request, res: Response) => {
     if (role) query.role = role;
     if (isBanned !== undefined) query.isBanned = isBanned === "true";
 
-    // Xử lý OR giữa name và email
     const orConditions = [];
     if (name) orConditions.push({ name: { $regex: name, $options: "i" } });
     if (email) orConditions.push({ email: { $regex: email, $options: "i" } });

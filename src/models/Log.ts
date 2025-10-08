@@ -19,7 +19,7 @@ const LogSchema = new Schema<ILog>({
   statusCode: Number,
   description: String,
   level: { type: String, enum: ["info", "warning", "error", "critical"], default: "info" },
-  timestamp: { type: Date, default: Date.now, expires: '30d' }, // auto-clean
+  timestamp: { type: Date, default: Date.now, expires: '30d' }, 
 });
 
 export default mongoose.model<ILog>("Log", LogSchema);

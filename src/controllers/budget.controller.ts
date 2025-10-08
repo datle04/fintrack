@@ -99,25 +99,21 @@ export const getMonthlyBudget = async (req: AuthRequest, res: Response) => {
     const start = dayjs.utc(`${year}-${month}-01`).startOf('month').toDate();
     const end = dayjs.utc(`${year}-${month}-01`).endOf('month').toDate();
 
-    // 👉 Lấy tất cả giao dịch chi tiêu trong tháng
     const transactions = await Transaction.find({
       user: new mongoose.Types.ObjectId(req.userId),
       type: 'expense',
       date: { $gte: start, $lte: end },
     });
 
-    // 👉 Tính tổng chi
     const totalSpent = transactions.reduce((sum, tx) => sum + tx.amount, 0);
     const percentUsed = Math.round((totalSpent / budget.totalAmount) * 100);
 
-    // 👉 Tính chi theo từng danh mục
     const spentPerCategory: Record<string, number> = {};
     transactions.forEach(tx => {
       if (!spentPerCategory[tx.category]) spentPerCategory[tx.category] = 0;
       spentPerCategory[tx.category] += tx.amount;
     });
 
-    // 👉 Ghép vào ngân sách danh mục
     const categoryStats = budget.categories.map(cat => {
       const spent = spentPerCategory[cat.category] || 0;
       const catPercentUsed = Math.round((spent / cat.amount) * 100);

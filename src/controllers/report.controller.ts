@@ -17,11 +17,9 @@ export const exportReport = async (req: AuthRequest, res: Response) => {
   }
 
   try {
-    // ✅ Tìm xem đã có báo cáo chưa
     const existingReport = await ReportModel.findOne({ userId, month });
 
     if (existingReport) {
-      // 🔁 Nếu đã có → trả về luôn
       await logAction(req, {
         action: 'Export Report',
         statusCode: 200,
@@ -31,7 +29,6 @@ export const exportReport = async (req: AuthRequest, res: Response) => {
       return res.status(200).json({ report: existingReport });
     }
 
-    // 🚀 Nếu chưa có → tạo mới
     const reportId = uuidv4();
     const pdfBuffer = await generatePDF(html);
     const fileName = `${reportId}.pdf`;

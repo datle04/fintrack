@@ -10,7 +10,7 @@ export const logActivity = async (
 
   res.on("finish", async () => {
     try {
-      // ⛔ Nếu đã ghi log chi tiết bằng logAction thì bỏ qua
+      // Nếu đã ghi log chi tiết bằng logAction thì bỏ qua
       if (req.skipLogActivity) return;
 
       const userId = (req as any).user?._id?.toString();
