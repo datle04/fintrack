@@ -9,8 +9,8 @@ export interface ITransaction extends Document {
     date: Date;
     receiptImage?: string[];
     isRecurring?: boolean;
-    recurringDay?: number;
-
+    recurringDay?: number; // ví dụ: 15 -> mỗi tháng vào ngày 15
+    recurringId?: string; // để nhóm các recurring lại
     createdAt?: Date;
     updatedAt?: Date;
 }
@@ -25,9 +25,14 @@ const transactionSchema = new Schema<ITransaction> (
         date: {type: Date, required: false},
         receiptImage: {type: [String], required: false},
         isRecurring: {type: Boolean, default: false},
-        recurringDay: {type: Number, min: 1, max: 31},
+        recurringDay: { type: Number, min: 1, max: 31 },
+        recurringId: { type: String }, // dùng để track recurring serie
     },
     {timestamps: true}
 );
+
+// Thêm index để query nhanh theo user + date
+transactionSchema.index({ user: 1, date: -1 });
+
 
 export default mongoose.model<ITransaction>("Transaction", transactionSchema);

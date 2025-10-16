@@ -4,9 +4,9 @@ import dayjs from "dayjs";
 import Transaction from "../models/Transaction";
 import { Types } from "mongoose";
 
-export const getCategoryExpenseStats = async ( req: AuthRequest, res: Response ) => {
+export const getCategoryStats = async ( req: AuthRequest, res: Response ) => {
     try {
-        const { startDate, endDate } = req.query;
+        const { startDate, endDate, type } = req.query;
 
         const start = startDate
             ? dayjs(startDate as string).startOf('day').toDate()
@@ -20,7 +20,7 @@ export const getCategoryExpenseStats = async ( req: AuthRequest, res: Response )
             {
                 $match: {
                     user:  new Types.ObjectId(req.userId),
-                    type: 'expense',
+                    type: type,
                     date: { $gte: start, $lt: end },
                     $or: [
                         { isRecurring: { $ne: true } },
@@ -48,7 +48,7 @@ export const getCategoryExpenseStats = async ( req: AuthRequest, res: Response )
 
         const txs = await Transaction.find({
             user: req.userId,
-            type: 'expense',
+            type: type,
             date: { $gte: start, $lte: end },
         });
 

@@ -35,7 +35,7 @@ export const requireAuth = async (
 
     next();
   } catch (error) {
-        res.status(401).json({ message: 'Token không hợp lệ!' });
-        return;
+      res.status(401).json({ message: 'Token không hợp lệ!' });
+      return;
   }
 };

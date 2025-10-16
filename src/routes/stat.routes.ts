@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { requireAuth } from "../middlewares/requireAuth";
-import { getCategoryExpenseStats } from "../controllers/stat.controller";
+import { getCategoryStats } from "../controllers/stat.controller";
 
 const router = Router();
 
-router.get('/category-expense', requireAuth, getCategoryExpenseStats);
+router.get('/category-stats', requireAuth, getCategoryStats);   
 
 export default router;
