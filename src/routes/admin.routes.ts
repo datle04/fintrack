@@ -32,6 +32,10 @@ router.put("/transactions/:id", upload.array('receiptImages', 5) ,TransactionCon
 router.get("/dashboard", DashboardController.getAdminDashboardStats);
 router.get('/dashboard/monthly-stats', DashboardController.getMonthlyIncomeExpenseStats);
 router.get('/dashboard/monthly-transactions', DashboardController.getMonthlyTransactionCount);
+router.get("/dashboard/user-signups", DashboardController.getNewUserSignups);
+router.get("/dashboard/recent-errors", DashboardController.getRecentErrorLogs);
+router.get("/dashboard/active-users", DashboardController.getActiveUsersStats);
+router.get("/dashboard/top-categories", DashboardController.getTopExpenseCategories);
 
 // Category
 router.get("/categories/summary", CategoryController.getCategorySummary);

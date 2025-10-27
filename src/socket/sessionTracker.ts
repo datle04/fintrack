@@ -1,66 +1,104 @@
 // src/socket/sessionTracker.ts
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
-import { SessionModel } from "../models/Session";
+import { SessionModel } from "../models/Session"; // Import model của bạn
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 
-const activeSessions = new Map<string, string>(); 
+// Key: socket.id, Value: sessionId
+const activeSessions = new Map<string, string>();
 
 export const setupSessionTracking = (io: Server) => {
   console.log("📡 [SessionTracker] Socket.IO session tracking is active");
 
-  io.on("connection", (socket) => {
+  io.on("connection", async (socket) => { // Thêm async
     const token = socket.handshake.auth.token;
 
     try {
       const decoded = jwt.verify(token, JWT_SECRET) as unknown as { id: string };
-      const userId = decoded.id;
+      const userId = decoded.id; // Đây là 'userId' (string)
       socket.data.userId = userId;
 
       console.log("[Socket] Connected user:", userId);
 
+      // (Các hàm log ping/pong giữ nguyên)
       socket.conn.on("packet", (packet) => {
         if (packet.type === "ping") console.log("[Server] Ping received");
         if (packet.type === "pong") console.log("[Server] Pong received");
       });
 
+
+      // --- SỬA 1: DỌN DẸP CÁC SESSION "ZOMBIE" CỦA USER NÀY ---
+      try {
+        await SessionModel.updateMany(
+          // Dùng đúng tên trường: "userId"
+          { userId: userId, logoutAt: null }, 
+          {
+            logoutAt: new Date(Date.now() - 1000), 
+            duration: 0,
+          }
+        );
+      } catch (cleanupErr) {
+        console.error("[Session] Lỗi khi dọn dẹp session cũ:", cleanupErr);
+      }
+      // ----------------------------------------------------
+
       // Tạo session login mới
       const loginTime = new Date();
-      SessionModel.create({ userId, loginAt: loginTime })
-        .then((session) => {
-          activeSessions.set(userId, session._id.toString());
-        })
-        .catch((err) => {
-          console.error(" [Session] Failed to create session:", err);
+      try {
+        const session = await SessionModel.create({
+          // Dùng đúng tên trường: "userId" và "loginAt"
+          userId: userId, 
+          loginAt: loginTime, 
+          logoutAt: null,
         });
+
+        // Dùng socket.id làm key (giữ nguyên)
+        activeSessions.set(socket.id, session._id.toString());
+        console.log(
+          `[Session] Mới cho ${userId} (Socket: ${socket.id}), Session: ${session._id}`
+        );
+      } catch (err) {
+        console.error(" [Session] Failed to create session:", err);
+      }
 
       // Xử lý disconnect
       socket.on("disconnect", async () => {
-        console.log(`[Socket] Disconnected user ${userId}`);
+        console.log(`[Socket] Disconnected user ${userId} (Socket: ${socket.id})`);
 
-        const sessionId = activeSessions.get(userId);
-        if (!sessionId) return console.warn(`No session found for ${userId}`);
+        // Lấy session bằng socket.id (giữ nguyên)
+        const sessionId = activeSessions.get(socket.id);
+        if (!sessionId){
+          console.warn(`No session found for socket ${socket.id}`);
+          return;
+        }
+          
 
         try {
           const logoutTime = new Date();
           const session = await SessionModel.findById(sessionId);
+
+          // Dùng đúng tên trường: "logoutAt" và "loginAt"
           if (session && !session.logoutAt) {
             session.logoutAt = logoutTime;
-            session.duration = Math.floor((logoutTime.getTime() - session.loginAt.getTime()) / 1000);
+            session.duration = Math.floor(
+              (logoutTime.getTime() - session.loginAt.getTime()) / 1000
+            );
             await session.save();
-            console.log(`[Session] Closed for ${userId}, Duration: ${session.duration}s`);
+            console.log(
+              `[Session] Đã đóng ${sessionId} cho ${userId}, Duration: ${session.duration}s`
+            );
           }
         } catch (err) {
           console.error("[Session] Error updating session:", err);
         }
 
-        activeSessions.delete(userId);
+        // Xóa session bằng socket.id (giữ nguyên)
+        activeSessions.delete(socket.id);
       });
-
     } catch (err: any) {
       console.error("❌ [Socket] Invalid token:", err.message);
-      socket.disconnect(true); 
+      socket.disconnect(true);
     }
   });
 };
