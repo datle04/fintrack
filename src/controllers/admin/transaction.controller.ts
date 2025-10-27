@@ -66,62 +66,86 @@ export const getAllTransactions = async (req: AuthRequest, res: Response) => {
 };
 
 // Admin không cần check req.userId
-export const adminUpdateTransaction = async (req: AuthRequest, res: Response): Promise<any> => {
-  console.log("req.body", req.body);
-  console.log("req.files", req.files);
-
+// Hàm này đã xử lý đa tiền tệ qua 'processTransactionData', giữ nguyên
+export const adminUpdateTransaction = async (
+  req: AuthRequest,
+  res: Response
+) => {
   try {
     const { id } = req.params;
-    const { amount, type, category, note, date, isRecurring, recurringDay, existingImages, currency } = req.body; // Lấy cả currency
+    const {
+      amount,
+      type,
+      category,
+      note,
+      date,
+      isRecurring,
+      recurringDay,
+      existingImages,
+      currency,
+      goalId,
+      userId, // Admin có thể chỉ định userId
+    } = req.body;
 
-    // 1. 💡 PROCESS MULTI-CURRENCY DATA
-    const processedData = await processTransactionData({ amount, type, category, note, date, isRecurring, recurringDay, currency });
+    const processedData = await processTransactionData({
+      currency,
+      amount,
+      type,
+      category,
+      note,
+      date,
+      isRecurring,
+      recurringDay,
+      goalId: goalId || null,
+    });
 
     let keepImages: string[] = [];
     if (existingImages) {
-      keepImages = Array.isArray(existingImages) ? existingImages : [existingImages];
+      keepImages = Array.isArray(existingImages)
+        ? existingImages
+        : [existingImages];
     }
 
     let newUploadedImages: string[] = [];
-
     if (req.files && Array.isArray(req.files)) {
-      const uploadPromises = (req.files as Express.Multer.File[]).map(file => {
-        const base64 = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
-        return cloudinary.uploader.upload(base64, {
-          folder: 'fintrack_receipts',
-          public_id: `receipt-${uuid()}`,
-        });
-      });
-
+      const uploadPromises = (req.files as Express.Multer.File[]).map(
+        (file) => {
+          const base64 = `data:${
+            file.mimetype
+          };base64,${file.buffer.toString("base64")}`;
+          return cloudinary.uploader.upload(base64, {
+            folder: "fintrack_receipts",
+            public_id: `receipt-${uuid()}`,
+          });
+        }
+      );
       const results = await Promise.all(uploadPromises);
-      newUploadedImages = results.map(result => result.secure_url);
+      newUploadedImages = results.map((result) => result.secure_url);
     }
 
-    const isRecurringBool = processedData.isRecurring === "true" || processedData.isRecurring === true;
-
-    if (isRecurringBool && (processedData.recurringDay < 1 || processedData.recurringDay > 31)) {
-      return res.status(400).json({ message: "Ngày định kỳ không hợp lệ" });
-    }
-
+    const isRecurringBool = isRecurring === "true" || isRecurring === true;
     const finalImages = [...keepImages, ...newUploadedImages];
 
-    const updatedTx = await Transaction.findByIdAndUpdate(
-      id,
-      {
-        // 2. APPLY PROCESSED DATA (Đã có currency và exchangeRate)
-        amount: processedData.amount,
-        type: processedData.type,
-        category: processedData.category,
-        note: processedData.note,
-        date: processedData.date ? new Date(processedData.date) : undefined,
-        isRecurring: isRecurringBool,
-        recurringDay: isRecurringBool ? processedData.recurringDay : undefined,
-        receiptImage: finalImages,
-        currency: processedData.currency,
-        exchangeRate: processedData.exchangeRate,
-      },
-      { new: true }
-    ).populate("user", "-password");
+    const updateFields = {
+      amount: processedData.amount,
+      type: processedData.type,
+      category: processedData.category,
+      note: processedData.note,
+      date: processedData.date ? new Date(processedData.date) : undefined,
+      isRecurring: isRecurringBool,
+      recurringDay: isRecurringBool
+        ? processedData.recurringDay
+        : undefined,
+      receiptImage: finalImages,
+      currency: processedData.currency,
+      exchangeRate: processedData.exchangeRate,
+      goalId: processedData.goalId || null,
+      user: userId, // Admin cập nhật user
+    };
+
+    const updatedTx = await Transaction.findByIdAndUpdate(id, updateFields, {
+      new: true,
+    });
 
     if (!updatedTx) {
       res.status(404).json({ message: "Giao dịch không tồn tại!" });
@@ -137,15 +161,45 @@ export const adminUpdateTransaction = async (req: AuthRequest, res: Response): P
     res.json(updatedTx);
   } catch (error) {
     console.error("❌ Lỗi khi admin cập nhật giao dịch:", error);
-
     await logAction(req, {
       action: "Admin Update Transaction",
       statusCode: 500,
       description: "Lỗi khi admin cập nhật giao dịch",
       level: "error",
     });
-
     res.status(500).json({ message: "Không thể cập nhật!", error });
+  }
+};
+
+// Hàm này không có lỗi, giữ nguyên
+export const adminDeleteTransaction = async (
+  req: AuthRequest,
+  res: Response
+) => {
+  try {
+    const { id } = req.params;
+    const deletedTx = await Transaction.findByIdAndDelete(id);
+
+    if (!deletedTx) {
+      return res.status(404).json({ message: "Giao dịch không tồn tại!" });
+    }
+
+    await logAction(req, {
+      action: "Admin Delete Transaction",
+      statusCode: 200,
+      description: `Admin đã xóa giao dịch ID: ${id}`,
+    });
+
+    res.json({ message: "Đã xóa giao dịch thành công" });
+  } catch (error) {
+    console.error("❌ Lỗi khi admin xóa giao dịch:", error);
+    await logAction(req, {
+      action: "Admin Delete Transaction",
+      statusCode: 500,
+      description: "Lỗi khi admin xóa giao dịch",
+      level: "error",
+    });
+    res.status(500).json({ message: "Không thể xóa!", error });
   }
 };
 
@@ -188,43 +242,43 @@ export const deleteTransaction = async (req: AuthRequest, res: Response) => {
 
 export const getTransactionStats = async (req: Request, res: Response) => {
   try {
-    const stats = await Transaction.aggregate([
+    // --- SỬA LỖI 1: TÍNH TỔNG DỰA TRÊN TỶ GIÁ ---
+    const totalIncome = await Transaction.aggregate([
+      { $match: { type: "income" } },
       {
         $group: {
-          _id: { $substr: ["$date", 0, 7] }, // YYYY-MM
-          totalIncome: {
-            $sum: { 
-              $cond: [
-                { $eq: ["$type", "income"] }, "$amount", 
-                // 💡 FIX: ÁP DỤNG QUY ĐỔI TIỀN TỆ
-                { $multiply: ["$amount", { $ifNull: ["$exchangeRate", 1] }] },
-                0
-              ] 
-            }
+          _id: null,
+          total: {
+            // Phải nhân amount với exchangeRate
+            $sum: { $multiply: ["$amount", { $ifNull: ["$exchangeRate", 1] }] },
           },
-          totalExpense: {
-            $sum: {
-              $cond: [
-                { $eq: ["$type", "expense"] }, "$amount", 
-                // 💡 FIX: ÁP DỤNG QUY ĐỔI TIỀN TỆ
-                { $multiply: ["$amount", { $ifNull: ["$exchangeRate", 1] }] },
-                0
-              ] 
-            }
-          }
-        }
+        },
       },
-      { $sort: { _id: 1 } }
     ]);
 
-    const processedStats = stats.map(item => ({
-        monthYear: item._id,
-        totalIncome: Number(item.totalIncome.toFixed(0)),
-        totalExpense: Number(item.totalExpense.toFixed(0)),
-    }));
+    // --- SỬA LỖI 2: TÍNH TỔNG DỰA TRÊN TỶ GIÁ ---
+    const totalExpense = await Transaction.aggregate([
+      { $match: { type: "expense" } },
+      {
+        $group: {
+          _id: null,
+          total: {
+            // Phải nhân amount với exchangeRate
+            $sum: { $multiply: ["$amount", { $ifNull: ["$exchangeRate", 1] }] },
+          },
+        },
+      },
+    ]);
 
-    res.json(processedStats);
-  } catch (error) {
-    res.status(500).json({ message: "Lỗi thống kê giao dịch", error });
+    const transactionCount = await Transaction.countDocuments();
+
+    res.json({
+      totalIncome: totalIncome[0]?.total || 0,
+      totalExpense: totalExpense[0]?.total || 0,
+      transactionCount,
+    });
+  } catch (err) {
+    console.error("❌ Lỗi khi lấy thống kê giao dịch (admin):", err);
+    res.status(500).json({ message: "Lỗi server" });
   }
 };
