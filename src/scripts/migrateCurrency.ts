@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 import Transaction from '../models/Transaction'; 
 
 // Giả định bạn có biến môi trường cho MongoDB URL
-const MONGODB_URL = process.env.MONGODB_URI || "mongodb+srv://ldat0909:Letandat31102004@cluster0.3wglbsv.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+const MONGODB_URL = process.env.MONGODB_URI!;
 
 /**
  * Script migration: Cập nhật các giao dịch cũ không có trường currency và exchangeRate.
