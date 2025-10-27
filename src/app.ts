@@ -17,6 +17,8 @@ import statRoutes from './routes/stat.routes';
 import reportRoutes from './routes/report.routes';
 import adminRoutes from './routes/admin.routes';
 import chatHistoryRoutes from './routes/chatHistory.routes';
+import goalRoutes from './routes/goal.routes';
+// import cronRoutes from './routes/cron.routes';
 
 const app = express();
 
@@ -41,7 +43,9 @@ app.use('/api/notification', notificationRoutes);
 app.use('/api/stats', statRoutes);
 app.use('/api/report', reportRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/goals', goalRoutes);
 app.use('/api/chat-history', chatHistoryRoutes);
+// app.use('/api/cron', cronRoutes);
 
 app.get('/', (req, res) => {
     res.send('FinTrack API is running');

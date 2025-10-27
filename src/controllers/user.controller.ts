@@ -6,7 +6,7 @@ import { logAction } from "../utils/logAction";
 
 export const updateProfile = async (req: AuthRequest, res: Response) => {
   try {
-    const { name, dob, phone, address } = req.body;
+    const { name, dob, phone, address, currency } = req.body;
     let avatarUrl = "";
 
     // Nếu có ảnh mới được upload
@@ -26,6 +26,7 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
       dob: Date;
       phone: string;
       address: string;
+      currency: string;
     }> = {};
 
     if (name) updateFields.name = name;
@@ -33,6 +34,7 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
     if (dob) updateFields.dob = dob;
     if (phone) updateFields.phone = phone;
     if (address) updateFields.address = address;
+    if (currency) updateFields.currency = currency;
 
     const updatedUser = await User.findByIdAndUpdate(
       req.userId,

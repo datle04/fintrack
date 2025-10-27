@@ -1,147 +1,186 @@
 import { Request, Response } from 'express';
 import { AuthRequest } from '../middlewares/requireAuth';
-import Transaction from '../models/Transaction';
+import Transaction, { ITransaction } from '../models/Transaction';
 import cloudinary from '../utils/cloudinary';
 import { v4 as uuid } from 'uuid';
 import { getLastDayOfMonth } from '../utils/getLastDayOfMonth';
 import { logAction } from '../utils/logAction';
 import { checkBudgetAlertForUser } from '../cron/checkBudgetAlertForUser';
+import { getExchangeRate } from '../services/exchangeRate'; 
+import { Types } from 'mongoose';
 import axios from "axios";
+import Goal from '../models/Goal';
+
+// Hàm xử lý chung để lấy tỷ giá và chuẩn bị dữ liệu giao dịch
+const processTransactionData = async (data: any) => {
+    const transactionCurrency = (data.currency || 'VND').toUpperCase();
+    let exchangeRate = 1;
+
+    if (transactionCurrency !== 'VND') {
+        // Lấy tỷ giá hối đoái (fromCurrency -> VND)
+        exchangeRate = await getExchangeRate(transactionCurrency);
+    }
+    
+    // Tạo đối tượng dữ liệu giao dịch mới (chỉ dùng cho logic lưu)
+    // Lưu ý: amount vẫn là giá trị gốc, tỷ giá được lưu riêng.
+    return {
+        ...data,
+        currency: transactionCurrency,
+        exchangeRate: exchangeRate,
+    };
+}
+
+const updateGoalProgress = async (transaction: ITransaction) => {
+    try {
+        // Chỉ chạy nếu giao dịch này có liên kết với một mục tiêu
+        if (transaction.goalId && transaction.type === 'expense') {
+            // Tính toán giá trị cơ sở (VND) của khoản đóng góp này
+            // (Giả định exchangeRate đã là tỷ giá quy đổi về VND)
+            const baseAmountToAdd = transaction.amount * transaction.exchangeRate;
+
+            if (baseAmountToAdd === 0) return;
+
+            // Tăng (hoặc giảm nếu là số âm) `currentBaseAmount` của Mục tiêu
+            await Goal.findByIdAndUpdate(transaction.goalId, {
+                $inc: { currentBaseAmount: baseAmountToAdd },
+            });
+            
+            console.log(`[Goal Update] Cập nhật Goal ${transaction.goalId} thêm ${baseAmountToAdd} VND`);
+        }
+    } catch (error) {
+        console.error(`[Goal Update Error] Lỗi khi cập nhật mục tiêu ${transaction.goalId}:`, error);
+        // Tùy chọn: log lỗi này vào hệ thống logging của bạn
+        //await logAction(null, { action: "Update Goal Progress", statusCode: 500, ... });
+    }
+};
 
 // CREATE
 export const createTransaction = async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const {
-      amount,
-      type,
-      category,
-      note,
-      date,
-      recurringDay,
-      isRecurring
-    } = req.body;
+    try {
+        const {
+            amount,
+            type,
+            category,
+            note,
+            date,
+            recurringDay,
+            isRecurring,
+            currency, // <-- Lấy trường mới từ body
+            goalId,
+        } = req.body;
 
-    if (amount < 0) {
-      res.status(400).json({ message: "Số tiền không hợp lệ!" });
-      return;
-    }
+        if (amount < 0) {
+            res.status(400).json({ message: "Số tiền không hợp lệ!" });
+            return;
+        }
 
-    let receiptImages: string[] = [];
-    if (req.files && Array.isArray(req.files)) {
-      const uploadPromises = (req.files as Express.Multer.File[]).map(file => {
-        const base64 = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
-        return cloudinary.uploader.upload(base64, {
-          folder: 'fintrack_receipts',
-          public_id: `receipt-${uuid()}`
+        // 1. XỬ LÝ ĐA TIỀN TỆ: Lấy tỷ giá và currency cuối cùng
+        const { exchangeRate, currency: finalCurrency } = await processTransactionData({ currency, amount });
+        
+        // 2. IMAGE UPLOAD
+        let receiptImages: string[] = [];
+        if (req.files && Array.isArray(req.files)) {
+            const uploadPromises = (req.files as Express.Multer.File[]).map(file => {
+                const base64 = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+                // Assuming cloudinary.uploader.upload and uuid() are imported
+                return cloudinary.uploader.upload(base64, {
+                    folder: 'fintrack_receipts',
+                    public_id: `receipt-${uuid()}`
+                });
+            });
+
+            const results = await Promise.all(uploadPromises);
+            receiptImages = results.map(result => result.secure_url);
+        }
+
+        const isRecurringBool = isRecurring === 'true' || isRecurring === true;
+
+        if (isRecurringBool) {
+            // 3. TẠO GIAO DỊCH ĐỊNH KỲ (UPDATED)
+            if (!recurringDay || recurringDay < 1 || recurringDay > 31) {
+                res.status(400).json({ message: "Ngày định kỳ (recurringDay) không hợp lệ" });
+                return;
+            }
+
+            const recurringId = uuid();
+
+            // Các trường chung cho Template và First Transaction
+            const commonFields = {
+                user: req.userId,
+                amount,
+                type,
+                category,
+                note,
+                receiptImage: receiptImages,
+                isRecurring: true,
+                recurringDay,
+                recurringId,
+                // <-- THÊM THÔNG TIN TIỀN TỆ
+                currency: finalCurrency,
+                exchangeRate,
+                goalId: goalId || null
+            };
+
+            // a. Template Transaction (date: undefined)
+            const templateTx = await Transaction.create({ ...commonFields, date: undefined });
+
+            // b. First Transaction (sử dụng date truyền vào)
+            const firstTx = await Transaction.create({ 
+                ...commonFields, 
+                date: new Date(date) 
+            });
+
+            // --- 4. GỌI HÀM CẬP NHẬT GOAL ---
+            // Chỉ cập nhật cho giao dịch đầu tiên (có thật)
+            await updateGoalProgress(firstTx);
+
+            // --- 5. KIỂM TRA CẢNH BÁO NGÂN SÁCH --- // <-- THÊM MỚI
+            // Chỉ kiểm tra cho giao dịch đầu tiên (có thật)
+            await checkBudgetAlertForUser(req.userId!); 
+
+            await logAction(req, { action: "Create Recurring Transaction", statusCode: 201, description: `Tạo giao dịch định kỳ ngày ${recurringDay}` });
+
+            res.status(201).json({ message: "Đã tạo giao dịch định kỳ và bản đầu tiên", template: templateTx, firstTransaction: firstTx });
+            return;
+        }
+
+        // 4. TẠO GIAO DỊCH THÔNG THƯỜNG (UPDATED)
+        if (!date) {
+            res.status(400).json({ message: "Giao dịch thường cần trường `date`" });
+            return;
+        }
+
+        const tx = await Transaction.create({
+            user: req.userId,
+            amount,
+            type,
+            category,
+            note,
+            receiptImage: receiptImages,
+            isRecurring: false,
+            date,
+            // <-- THÊM THÔNG TIN TIỀN TỆ
+            currency: finalCurrency,
+            exchangeRate,
+            goalId: goalId || null,
         });
-      });
 
-      const results = await Promise.all(uploadPromises);
-      receiptImages = results.map(result => result.secure_url);
+        // --- 4. GỌI HÀM CẬP NHẬT GOAL ---
+        await updateGoalProgress(tx);
+
+        // --- 5. KIỂM TRA CẢNH BÁO NGÂN SÁCH --- // <-- THÊM MỚI
+        await checkBudgetAlertForUser(req.userId!);
+
+        await logAction(req, { action: "Create Transaction", statusCode: 201, description: `Tạo giao dịch thường ${type} - ${category}` });
+
+        res.status(201).json({ message: "Đã tạo giao dịch thành công", transaction: tx });
+
+    } catch (error) {
+        console.error("❌ Lỗi khi tạo giao dịch:", error);
+        await logAction(req, { action: "Create Transaction", statusCode: 500, description: "Lỗi khi tạo giao dịch", level: "error" });
+        res.status(500).json({ message: "Không thể tạo giao dịch", error });
     }
-
-    const isRecurringBool = isRecurring === 'true' || isRecurring === true;
-
-    if (isRecurringBool) {
-      if (!recurringDay || recurringDay < 1 || recurringDay > 31) {
-        res.status(400).json({ message: "Ngày định kỳ (recurringDay) không hợp lệ" });
-        return;
-      }
-
-      const recurringId = uuid();
-
-      const templateTx = await Transaction.create({
-        user: req.userId,
-        amount,
-        type,
-        category,
-        note,
-        receiptImage: receiptImages,
-        isRecurring: true,
-        recurringDay,
-        recurringId,
-        date: undefined
-      });
-
-      const today = new Date();
-      const year = today.getFullYear();
-      const month = today.getMonth();
-      const day = Math.min(+recurringDay, getLastDayOfMonth(year, month));
-
-      const firstTx = await Transaction.create({
-        user: req.userId,
-        amount,
-        type,
-        category,
-        note,
-        receiptImage: receiptImages,
-        isRecurring: true,
-        recurringDay,
-        recurringId,
-        date: new Date(date)
-      });
-
-      await logAction(req, {
-        action: "Create Recurring Transaction",
-        statusCode: 201,
-        description: `Tạo giao dịch định kỳ ngày ${recurringDay}`
-      });
-
-      res.status(201).json({
-        message: "Đã tạo giao dịch định kỳ và bản đầu tiên",
-        template: templateTx,
-        firstTransaction: firstTx
-      });
-      return;
-    }
-
-    if (!date) {
-      res.status(400).json({ message: "Giao dịch thường cần trường `date`" });
-      return;
-    }
-
-    const tx = await Transaction.create({
-      user: req.userId,
-      amount,
-      type,
-      category,
-      note,
-      receiptImage: receiptImages,
-      isRecurring: false,
-      date
-    });
-
-    if (tx.type === 'expense') {
-  const userId = typeof tx.user === 'object' ? tx.user.toString() : tx.user;
-  console.log('🚀 Gọi checkBudgetAlertForUser với userId:', userId);
-  await checkBudgetAlertForUser(userId);
-}
-
-    await logAction(req, {
-      action: "Create Transaction",
-      statusCode: 201,
-      description: `Tạo giao dịch thường ${type} - ${category}`
-    });
-
-    res.status(201).json({
-      message: "Đã tạo giao dịch thành công",
-      transaction: tx
-    });
-
-  } catch (error) {
-    console.error("❌ Lỗi khi tạo giao dịch:", error);
-
-    await logAction(req, {
-      action: "Create Transaction",
-      statusCode: 500,
-      description: "Lỗi khi tạo giao dịch",
-      level: "error"
-    });
-
-    res.status(500).json({ message: "Không thể tạo giao dịch", error });
-  }
 };
-
 
 // GET ALL
 export const getTransactions = async (req: AuthRequest, res: Response) => {
@@ -273,86 +312,105 @@ export const getTransactionsByMonth = async (req: AuthRequest, res: Response) =>
 // UPDATE
 export const updateTransaction = async (req: AuthRequest, res: Response): Promise<any> => {
 
-  try {
-    const { id } = req.params;
-    const {
-      amount,
-      type,
-      category,
-      note,
-      date,
-      isRecurring,
-      recurringDay,
-      existingImages, 
-    } = req.body;
+    try {
+        const { id } = req.params;
+        const {
+            amount,
+            type,
+            category,
+            note,
+            date,
+            isRecurring,
+            recurringDay,
+            existingImages,
+            currency, // <-- Lấy trường mới từ body
+            goalId,
+        } = req.body;
 
-    let keepImages: string[] = [];
-    if (existingImages) {
-      keepImages = Array.isArray(existingImages) ? existingImages : [existingImages];
-    }
-
-    let newUploadedImages: string[] = [];
-
-    // Nếu có file mới được upload
-    if (req.files && Array.isArray(req.files)) {
-      const uploadPromises = (req.files as Express.Multer.File[]).map(file => {
-        const base64 = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
-        return cloudinary.uploader.upload(base64, {
-          folder: 'fintrack_receipts',
-          public_id: `receipt-${uuid()}`,
+        // 1. XỬ LÝ ĐA TIỀN TỆ: Lấy tỷ giá và currency cuối cùng
+        const processedData = await processTransactionData({ 
+            currency, 
+            amount,
+            type, // Các trường khác cần truyền qua helper để tránh mất
+            category, 
+            note,
+            date, 
+            isRecurring,
+            recurringDay,
+            goalId: goalId || null
         });
-      });
+        
+        // 2. IMAGE HANDLING (Logic cũ)
+        let keepImages: string[] = [];
+        if (existingImages) {
+            keepImages = Array.isArray(existingImages) ? existingImages : [existingImages];
+        }
 
-      const results = await Promise.all(uploadPromises);
-      newUploadedImages = results.map(result => result.secure_url);
+        let newUploadedImages: string[] = [];
+        if (req.files && Array.isArray(req.files)) {
+             // ... (logic upload ảnh cũ)
+            const uploadPromises = (req.files as Express.Multer.File[]).map(file => {
+                const base64 = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+                return cloudinary.uploader.upload(base64, {
+                    folder: 'fintrack_receipts',
+                    public_id: `receipt-${uuid()}`,
+                });
+            });
+
+            const results = await Promise.all(uploadPromises);
+            newUploadedImages = results.map(result => result.secure_url);
+        }
+
+        const isRecurringBool = isRecurring === "true" || isRecurring === true;
+
+        if (isRecurringBool && (recurringDay < 1 || recurringDay > 31)) {
+            return res.status(400).json({ message: "Ngày định kỳ không hợp lệ" });
+        }
+
+        const finalImages = [...keepImages, ...newUploadedImages];
+
+        // 3. DATABASE UPDATE (UPDATED)
+        const updateFields = {
+            amount: processedData.amount,
+            type: processedData.type,
+            category: processedData.category,
+            note: processedData.note,
+            date: processedData.date ? new Date(processedData.date) : undefined,
+            isRecurring: isRecurringBool,
+            recurringDay: isRecurringBool ? processedData.recurringDay : undefined,
+            receiptImage: finalImages,
+            // <-- CẬP NHẬT THÔNG TIN TIỀN TỆ
+            currency: processedData.currency,
+            exchangeRate: processedData.exchangeRate,
+            goalId: processedData.goalId || null
+        };
+
+        const updatedTx = await Transaction.findOneAndUpdate(
+            { _id: id, user: req.userId },
+            updateFields,
+            { new: true }
+        );
+
+        if (!updatedTx) {
+            return res.status(404).json({ message: "Giao dịch không tồn tại!" });
+        }
+
+        // Cập nhật mục tiêu (NÊN CÓ)
+        await updateGoalProgress(updatedTx); 
+
+        // KIỂM TRA NGÂN SÁCH (sau khi giao dịch đã được cập nhật)
+        await checkBudgetAlertForUser(req.userId!); // <-- GỌI HÀM MỚI Ở ĐÂY
+
+        await logAction(req, { action: "Update Transaction", statusCode: 200, description: `Đã cập nhật giao dịch ID: ${id}`, });
+
+        res.json(updatedTx);
+    } catch (error) {
+        console.error("❌ Lỗi khi cập nhật giao dịch:", error);
+
+        await logAction(req, { action: "Update Transaction", statusCode: 500, description: "Lỗi khi cập nhật giao dịch", level: "error", });
+
+        res.status(500).json({ message: "Không thể cập nhật!", error });
     }
-
-    const isRecurringBool = isRecurring === "true" || isRecurring === true;
-
-    if (isRecurringBool && (recurringDay < 1 || recurringDay > 31)) {
-      return res.status(400).json({ message: "Ngày định kỳ không hợp lệ" });
-    }
-
-    const finalImages = [...keepImages, ...newUploadedImages];
-
-    const updatedTx = await Transaction.findOneAndUpdate(
-      { _id: id, user: req.userId },
-      {
-        amount,
-        type,
-        category,
-        note,
-        date: date ? new Date(date) : undefined,
-        isRecurring: isRecurringBool,
-        recurringDay: isRecurringBool ? recurringDay : undefined,
-        receiptImage: finalImages, // luôn cập nhật ảnh: gộp ảnh cũ + mới
-      },
-      { new: true }
-    );
-
-    if (!updatedTx) {
-      return res.status(404).json({ message: "Giao dịch không tồn tại!" });
-    }
-
-    await logAction(req, {
-      action: "Update Transaction",
-      statusCode: 200,
-      description: `Đã cập nhật giao dịch ID: ${id}`,
-    });
-
-    res.json(updatedTx);
-  } catch (error) {
-    console.error("❌ Lỗi khi cập nhật giao dịch:", error);
-
-    await logAction(req, {
-      action: "Update Transaction",
-      statusCode: 500,
-      description: "Lỗi khi cập nhật giao dịch",
-      level: "error",
-    });
-
-    res.status(500).json({ message: "Không thể cập nhật!", error });
-  }
 };
 
 // DELETE

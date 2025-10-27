@@ -20,6 +20,7 @@ export const getCategorySuggestion = async (note: string) => {
   - salary
   - food
   - investment
+  - travel
   - other
 
   Trả về kết quả ngắn gọn: chỉ tên danh mục (ví dụ: sales).
@@ -47,6 +48,7 @@ export const getCategorySuggestion = async (note: string) => {
     "salary",
     "food",
     "investment",
+    "travel",
     "other",
   ];
 

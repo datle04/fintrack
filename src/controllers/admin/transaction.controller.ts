@@ -4,6 +4,30 @@ import { logAction } from "../../utils/logAction";
 import { AuthRequest } from "../../middlewares/requireAuth";
 import cloudinary from "../../utils/cloudinary";
 import { v4 as uuid } from 'uuid';
+import { getExchangeRate } from "../../services/exchangeRate";
+import { getEndOfDay, getStartOfDay } from "../../utils/dateHelper";
+
+// Hàm xử lý chung để lấy tỷ giá và chuẩn bị dữ liệu giao dịch
+const processTransactionData = async (data: any) => {
+    const transactionCurrency = (data.currency || 'VND').toUpperCase();
+    let exchangeRate = 1;
+
+    if (transactionCurrency !== 'VND') {
+        // Đây là nơi gọi service tỷ giá
+        exchangeRate = await getExchangeRate(transactionCurrency); 
+        
+        // Kiểm tra tỷ giá an toàn
+        if (exchangeRate === 1) {
+             throw new Error(`API tỷ giá hối đoái đang trả về tỷ giá 1.0 cho ${transactionCurrency}. Vui lòng kiểm tra API Key.`);
+        }
+    }
+    
+    return {
+        ...data,
+        currency: transactionCurrency,
+        exchangeRate: exchangeRate,
+    };
+}
 
 export const getAllTransactions = async (req: AuthRequest, res: Response) => {
   const {userId, type, category, startDate, endDate, keyword, page = 1,limit = 20,} = req.query;
@@ -14,11 +38,11 @@ export const getAllTransactions = async (req: AuthRequest, res: Response) => {
   if (type) query.type = type;
   if (category) query.category = category;
   if (startDate && endDate) {
-    query.date = {
-      $gte: new Date(startDate as string),
-      $lte: new Date(endDate as string),
-    };
-  }
+    query.date = {
+      $gte: getStartOfDay(startDate as string), 
+      $lte: getEndOfDay(endDate as string), 
+    };
+  }
   if (keyword) {
     query.note = { $regex: keyword as string, $options: "i" };
   }
@@ -48,7 +72,10 @@ export const adminUpdateTransaction = async (req: AuthRequest, res: Response): P
 
   try {
     const { id } = req.params;
-    const { amount, type, category, note, date, isRecurring, recurringDay, existingImages } = req.body;
+    const { amount, type, category, note, date, isRecurring, recurringDay, existingImages, currency } = req.body; // Lấy cả currency
+
+    // 1. 💡 PROCESS MULTI-CURRENCY DATA
+    const processedData = await processTransactionData({ amount, type, category, note, date, isRecurring, recurringDay, currency });
 
     let keepImages: string[] = [];
     if (existingImages) {
@@ -70,9 +97,9 @@ export const adminUpdateTransaction = async (req: AuthRequest, res: Response): P
       newUploadedImages = results.map(result => result.secure_url);
     }
 
-    const isRecurringBool = isRecurring === "true" || isRecurring === true;
+    const isRecurringBool = processedData.isRecurring === "true" || processedData.isRecurring === true;
 
-    if (isRecurringBool && (recurringDay < 1 || recurringDay > 31)) {
+    if (isRecurringBool && (processedData.recurringDay < 1 || processedData.recurringDay > 31)) {
       return res.status(400).json({ message: "Ngày định kỳ không hợp lệ" });
     }
 
@@ -81,20 +108,24 @@ export const adminUpdateTransaction = async (req: AuthRequest, res: Response): P
     const updatedTx = await Transaction.findByIdAndUpdate(
       id,
       {
-        amount,
-        type,
-        category,
-        note,
-        date: date ? new Date(date) : undefined,
+        // 2. APPLY PROCESSED DATA (Đã có currency và exchangeRate)
+        amount: processedData.amount,
+        type: processedData.type,
+        category: processedData.category,
+        note: processedData.note,
+        date: processedData.date ? new Date(processedData.date) : undefined,
         isRecurring: isRecurringBool,
-        recurringDay: isRecurringBool ? recurringDay : undefined,
+        recurringDay: isRecurringBool ? processedData.recurringDay : undefined,
         receiptImage: finalImages,
-      },
-      { new: true }
-    ).populate("user", "-password"); // ⚠️ Trả object user đầy đủ
+        currency: processedData.currency,
+        exchangeRate: processedData.exchangeRate,
+      },
+      { new: true }
+    ).populate("user", "-password");
 
     if (!updatedTx) {
-      return res.status(404).json({ message: "Giao dịch không tồn tại!" });
+      res.status(404).json({ message: "Giao dịch không tồn tại!" });
+      return;
     }
 
     await logAction(req, {
@@ -162,17 +193,37 @@ export const getTransactionStats = async (req: Request, res: Response) => {
         $group: {
           _id: { $substr: ["$date", 0, 7] }, // YYYY-MM
           totalIncome: {
-            $sum: { $cond: [{ $eq: ["$type", "income"] }, "$amount", 0] }
+            $sum: { 
+              $cond: [
+                { $eq: ["$type", "income"] }, "$amount", 
+                // 💡 FIX: ÁP DỤNG QUY ĐỔI TIỀN TỆ
+                { $multiply: ["$amount", { $ifNull: ["$exchangeRate", 1] }] },
+                0
+              ] 
+            }
           },
           totalExpense: {
-            $sum: { $cond: [{ $eq: ["$type", "expense"] }, "$amount", 0] }
+            $sum: {
+              $cond: [
+                { $eq: ["$type", "expense"] }, "$amount", 
+                // 💡 FIX: ÁP DỤNG QUY ĐỔI TIỀN TỆ
+                { $multiply: ["$amount", { $ifNull: ["$exchangeRate", 1] }] },
+                0
+              ] 
+            }
           }
         }
       },
       { $sort: { _id: 1 } }
     ]);
 
-    res.json(stats);
+    const processedStats = stats.map(item => ({
+        monthYear: item._id,
+        totalIncome: Number(item.totalIncome.toFixed(0)),
+        totalExpense: Number(item.totalExpense.toFixed(0)),
+    }));
+
+    res.json(processedStats);
   } catch (error) {
     res.status(500).json({ message: "Lỗi thống kê giao dịch", error });
   }

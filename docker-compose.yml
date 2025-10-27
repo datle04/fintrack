@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    container_name: fintrack-backend
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    # --- Đã thêm redis_server vào depends_on ---
+    depends_on:
+      - mongo
+      - redis_server 
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: npm run dev
+    networks:
+      - fintrack-network
+
+  mongo:
+    image: mongo:6
+    container_name: fintrack-mongo
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - fintrack-network
+
+  redis_server:
+    image: redis:7-alpine
+    container_name: fintrack-backend-redis
+    ports:
+      - "6379:6379"
+    # --- Đã thêm restart policy ---
+    restart: always 
+    networks:
+      - fintrack-network
+
+networks:
+  fintrack-network:
+    external: true
+
+volumes:
+  mongo_data: {}

@@ -1,74 +1,94 @@
 import cron from 'node-cron';
-import Transaction from '../models/Transaction';
+import Transaction, { ITransaction } from '../models/Transaction';
 import { getLastDayOfMonth } from '../utils/getLastDayOfMonth';
+import Goal from '../models/Goal';
 
-/**
- * Cron job chạy mỗi ngày lúc 8:00 sáng
- * Duyệt qua các giao dịch recurring và tạo giao dịch mới nếu đến ngày trigger
- */
+// 2. TÁCH HÀM HELPER RA (để dùng lại từ transactionController)
+//    (Hoặc bạn import nó từ controller nếu bạn đã tách)
+const updateGoalProgress = async (transaction: ITransaction) => {
+  try {
+    // Chỉ chạy nếu là 'expense' và có 'goalId'
+    if (transaction.goalId && transaction.type === 'expense') { 
+      const baseAmountToAdd = transaction.amount * transaction.exchangeRate;
+      if (baseAmountToAdd === 0) return;
+
+      await Goal.findByIdAndUpdate(transaction.goalId, {
+        $inc: { currentBaseAmount: baseAmountToAdd },
+      });
+      console.log(`[Goal Update] Cron đã cập nhật Goal ${transaction.goalId} thêm ${baseAmountToAdd} VND`);
+    }
+  } catch (error) {
+    console.error(`[Goal Update Error] Lỗi khi cron cập nhật mục tiêu ${transaction.goalId}:`, error);
+  }
+};
+
+
 export const initRecurringTransactionJob = () => {
-  // Chạy mỗi ngày lúc 8h sáng
-  cron.schedule('0 8 * * *', async () => {
-  // cron.schedule('*/1 * * * *', async () => { // Dùng để test nhanh mỗi phút
+  // Chạy mỗi ngày lúc 8h sáng
+  cron.schedule('0 8 * * *', async () => {
+  // cron.schedule('*/1 * * * *', async () => { // Test
 
-    const now = new Date();
-    const today = now.getDate();
-    const month = now.getMonth();
-    const year = now.getFullYear();
+    const now = new Date();
+    const today = now.getDate();
+    const month = now.getMonth();
+    const year = now.getFullYear();
 
-    // Lấy tất cả recurring transactions còn active
-    const recurringTransactions = await Transaction.find({
-      isRecurring: true,
-      recurringDay: { $gte: 1, $lte: 31 },
-    });
+    // 3. SỬA FIND: Chỉ tìm các bản gốc (Template)
+    const templates = await Transaction.find({
+      isRecurring: true,
+      date: undefined, // Chỉ tìm các template (không có ngày)
+    });
 
-    console.log(`[Recurring] Tổng giao dịch định kỳ đang active: ${recurringTransactions.length}`);
+    console.log(`[Recurring] Tổng TEMPLATE định kỳ đang active: ${templates.length}`);
 
-    for (const tx of recurringTransactions) {
-      const triggerDay = Math.min(tx.recurringDay as number, getLastDayOfMonth(year, month));
+    for (const template of templates) {
+      const triggerDay = Math.min(template.recurringDay as number, getLastDayOfMonth(year, month));
 
-      console.log(
-        `[Recurring] TX: ${tx.note || '(không có note)'} | user=${tx.user} | recurringDay=${tx.recurringDay} | triggerDay=${triggerDay} | hôm nay=${today}`
-      );
+      console.log(
+        `[Recurring] TX: ${template.note || '(không có note)'} | user=${template.user} | triggerDay=${triggerDay} | hôm nay=${today}`
+      );
 
-      // Nếu hôm nay không trùng ngày lặp, skip
-      if (triggerDay !== today) {
-        console.log(`[Recurring] Bỏ qua: ${tx.note || '(no note)'} — chưa đến ngày thực thi.`);
-        continue;
-      }
+      // Nếu hôm nay không trùng ngày lặp, skip
+      if (triggerDay !== today) {
+        console.log(`[Recurring] Bỏ qua: ${template.note || '(no note)'} — chưa đến ngày thực thi.`);
+        continue;
+      }
 
-      // Kiểm tra xem giao dịch này đã được tạo trong tháng hiện tại chưa
-      const exists = await Transaction.findOne({
-        user: tx.user,
-        type: tx.type,
-        category: tx.category,
-        isRecurring: true,
-        recurringDay: tx.recurringDay,
-        date: {
-          $gte: new Date(year, month, 1),
-          $lt: new Date(year, month + 1, 1),
-        },
-      });
+      // 4. SỬA EXISTS: Kiểm tra bằng recurringId
+      const exists = await Transaction.findOne({
+        recurringId: template.recurringId, // Dùng ID của chuỗi
+        date: {
+          $gte: new Date(year, month, 1),
+          $lt: new Date(year, month + 1, 1),
+        },
+      });
 
-      if (exists) {
-        console.log(`[Recurring] Bỏ qua: ${tx.note || '(no note)'} — đã tồn tại trong tháng.`);
-        continue;
-      }
+      if (exists) {
+        console.log(`[Recurring] Bỏ qua: ${template.note || '(no note)'} — đã tồn tại trong tháng.`);
+        continue;
+      }
 
-      // Tạo giao dịch mới giống bản gốc (trừ createdAt/updatedAt)
-      await Transaction.create({
-        user: tx.user,
-        amount: tx.amount,
-        type: tx.type,
-        category: tx.category,
-        note: tx.note,
-        date: new Date(year, month, triggerDay),
-        isRecurring: true,
-        recurringDay: tx.recurringDay,
-        receiptImage: tx.receiptImage || [],
-      });
+      // 5. SỬA CREATE: Sao chép TẤT CẢ các trường quan trọng
+      const newTx = await Transaction.create({
+        user: template.user,
+        amount: template.amount,
+        type: template.type,
+        category: template.category,
+        note: template.note,
+        date: new Date(year, month, triggerDay), // Ngày thực thi
+        isRecurring: true,
+        recurringDay: template.recurringDay,
+        recurringId: template.recurringId, // <-- Thêm
+        goalId: template.goalId,         // <-- Thêm
+        currency: template.currency,     // <-- Thêm
+        exchangeRate: template.exchangeRate, // <-- Thêm
+        receiptImage: template.receiptImage || [],
+      });
 
-      console.log(`[Recurring] ✅ Đã thêm mới: ${tx.note || '(no note)'} vào ${triggerDay}/${month + 1}`);
-    }
-  });
+      console.log(`[Recurring] ✅ Đã thêm mới: ${newTx.note || '(no note)'} vào ${triggerDay}/${month + 1}`);
+      
+      // 6. GỌI HÀM CẬP NHẬT GOAL
+      await updateGoalProgress(newTx);
+    }
+  });
 };
