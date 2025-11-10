@@ -1,41 +1,92 @@
-import Log from "../../models/Log";
+// src/controllers/admin/log.controller.ts
 import { Request, Response } from "express";
+import Log from "../../models/Log"; //
+import { AuthRequest } from "../../middlewares/requireAuth"; //
+import mongoose from "mongoose";
 
-export const getLogs = async (req: Request, res: Response) => {
-  try {
-    const { action, method, level, page = 1, limit = 50, startDate, endDate, } = req.query;
+export const getAllLogs = async (req: AuthRequest, res: Response) => {
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = parseInt(req.query.limit as string) || 20;
+  const skip = (page - 1) * limit;
 
-    const query: any = {};
+  // Bộ lọc (Filters)
+  const { level, action, method, startDate, endDate, userId } = req.query; // <-- 1. LẤY THÊM userId TỪ QUERY
 
-    // Lọc theo action, method, level như cũ
-    if (action) query.action = { $regex: action, $options: "i" };
-    if (method) query.method = method.toString().toUpperCase();
-    if (level) query.level = level;
+  const filter: any = {};
 
-    // Lọc theo khoảng thời gian
-    if (startDate || endDate) {
-      query.timestamp = {};
-      if (startDate) query.timestamp.$gte = new Date(startDate.toString());
-      if (endDate) query.timestamp.$lte = new Date(endDate.toString());
+  if (level) {
+    filter.level = level;
+  }
+  if (action) {
+    filter.action = { $regex: action, $options: "i" }; // Tìm kiếm không phân biệt hoa thường
+  }
+  if (method) {
+    filter.method = method;
+  }
+
+  // --- 2. THÊM LOGIC LỌC THEO USERID ---
+  if (userId) {
+    // Đảm bảo userId là một ObjectId hợp lệ trước khi lọc
+    if (mongoose.Types.ObjectId.isValid(userId as string)) {
+      filter.userId = userId; //
+    } else {
+      res.status(400).json({ message: "UserId không hợp lệ" });
+      return;
     }
+  }
+  // ------------------------------------
 
-    const skip = (Number(page) - 1) * Number(limit);
+  if (startDate && endDate) {
+    filter.timestamp = {
+      $gte: new Date(startDate as string),
+      $lte: new Date(endDate as string),
+    };
+  } else if (startDate) {
+    filter.timestamp = { $gte: new Date(startDate as string) };
+  } else if (endDate) {
+    filter.timestamp = { $lte: new Date(endDate as string) };
+  }
 
-    const total = await Log.countDocuments(query);
-    const logs = await Log.find(query)
+  try {
+    const logs = await Log.find(filter)
+      .populate("user", "name email") //
       .sort({ timestamp: -1 })
       .skip(skip)
-      .limit(Number(limit));
+      .limit(limit);
+
+    const total = await Log.countDocuments(filter);
 
     res.json({
       logs,
-      page: Number(page),
-      totalPages: Math.ceil(total / Number(limit)),
-      totalLogs: total,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
     });
   } catch (err) {
-    console.error("❌ Error in getLogs:", err);
-    res.status(500).json({ message: "Lỗi server khi lấy logs!" });
+    console.error("❌ Lỗi khi lấy tất cả log (admin):", err);
+    res.status(500).json({ message: "Lỗi server" });
   }
 };
 
+export const getLogStats = async (req: AuthRequest, res: Response) => {
+  try {
+    const totalLogs = await Log.countDocuments();
+    const errorLogs = await Log.countDocuments({ level: "error" });
+    const infoLogs = await Log.countDocuments({ level: "info" });
+
+    const recentErrors = await Log.find({ level: "error" })
+      .sort({ timestamp: -1 })
+      .limit(5)
+      .populate("user", "name email");
+
+    res.json({
+      totalLogs,
+      errorLogs,
+      infoLogs,
+      recentErrors,
+    });
+  } catch (err) {
+    console.error("❌ Lỗi khi lấy thống kê log (admin):", err);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+};

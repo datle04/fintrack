@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { SessionModel } from "../../models/Session";
+import { AuthRequest } from "../../middlewares/requireAuth";
 
 // Lấy thứ trong tuần: 1 (T2) → 7 (CN)
 const getWeekday = (date: Date) => {
@@ -7,7 +8,7 @@ const getWeekday = (date: Date) => {
   return day === 0 ? 7 : day;
 };
 
-export const getWeeklyDurationAllUsers = async (req: Request, res: Response) => {
+export const getWeeklyDurationAllUsers = async (req: AuthRequest, res: Response) => {
   try {
     const { mode = "week" } = req.query;
 

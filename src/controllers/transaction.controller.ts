@@ -7,12 +7,12 @@ import { getLastDayOfMonth } from '../utils/getLastDayOfMonth';
 import { logAction } from '../utils/logAction';
 import { checkBudgetAlertForUser } from '../cron/checkBudgetAlertForUser';
 import { getExchangeRate } from '../services/exchangeRate'; 
-import { Types } from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import axios from "axios";
 import Goal from '../models/Goal';
 
 // Hàm xử lý chung để lấy tỷ giá và chuẩn bị dữ liệu giao dịch
-const processTransactionData = async (data: any) => {
+export const processTransactionData = async (data: any) => {
     const transactionCurrency = (data.currency || 'VND').toUpperCase();
     let exchangeRate = 1;
 
@@ -635,22 +635,16 @@ export const triggerRecurringTest = async (req: Request, res: Response) => {
 
 export const getTopTransactions = async (req: AuthRequest, res: Response) => {
   try {
-    // 📦 Lấy các tham số từ query
-    const { 
-      limit = 10, 
-      type, 
-      startDate, 
+    // 📦 Lấy các tham số từ query (Giữ nguyên)
+    const {
+      limit = 10,
+      type,
+      startDate,
       endDate,
-      order = 'desc'
+      order = "desc",
     } = req.query;
 
-    // 🧭 Xây dựng bộ lọc cơ bản
-    const filter: any = { user: req.userId };
-
-    if (type) filter.type = type;
-
-    // 🗓️ Lọc theo khoảng thời gian
-    // Nếu không truyền thì mặc định lấy tháng hiện tại
+    // 🗓️ Lọc theo khoảng thời gian (Giữ nguyên)
     let start: Date;
     let end: Date;
 
@@ -664,20 +658,60 @@ export const getTopTransactions = async (req: AuthRequest, res: Response) => {
       end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     }
 
-    filter.date = { $gte: start, $lte: end };
+    // --- BẮT ĐẦU SỬA LỖI ---
+
+    // 🧭 Xây dựng bộ lọc cho $match (PHẢI DÙNG ObjectId)
+    const matchFilter: any = {
+      user: new mongoose.Types.ObjectId(req.userId), // <-- 2. ÉP KIỂU SANG OBJECTID
+      date: { $gte: start, $lte: end },
+    };
+    if (type) matchFilter.type = type;
+
+    // 🧭 Xây dựng bộ lọc cho countDocuments (Dùng string, Mongoose tự ép kiểu)
+    // (Việc này an toàn hơn là truyền $match filter vào countDocuments)
+    const countFilter: any = {
+      user: req.userId,
+      date: { $gte: start, $lte: end },
+    };
+    if (type) countFilter.type = type;
+
+    // --- KẾT THÚC SỬA LỖI ---
 
     // 🧮 Thực hiện song song 2 truy vấn
-    const [transactions, total] = await Promise.all([
-      Transaction.find(filter)
-        .sort({ amount: order === 'desc' ? -1 : 1 })
-        .limit(Number(limit))
-        .lean(),
-      Transaction.countDocuments(filter),
-    ]);
+    const sortOrder = order === "desc" ? -1 : 1;
+    const numLimit = Number(limit);
 
-    // 📦 Trả kết quả
+    const [transactions, total] = await Promise.all([
+      // 1. Truy vấn Aggregation (Dùng matchFilter)
+      Transaction.aggregate([
+        {
+          $match: matchFilter, // <-- 3. Sử dụng filter đã ép kiểu
+        },
+        {
+          $addFields: {
+            baseAmount: {
+              $multiply: ["$amount", { $ifNull: ["$exchangeRate", 1] }], //
+            },
+          },
+        },
+        {
+          $sort: { baseAmount: sortOrder },
+        },
+        {
+          $limit: numLimit,
+        },
+      ]),
+      // 2. Đếm tổng số document (Dùng countFilter)
+      Transaction.countDocuments(countFilter),
+    ]);
+    // --- KẾT THÚC THAY ĐỔI ---
+
+    // 📦 Trả kết quả (Giữ nguyên)
     res.json({
       data: transactions,
+      total: total,
+      limit: numLimit,
+      page: 1,
       timeRange: {
         startDate: start.toISOString().split("T")[0],
         endDate: end.toISOString().split("T")[0],
@@ -685,6 +719,9 @@ export const getTopTransactions = async (req: AuthRequest, res: Response) => {
     });
   } catch (err) {
     console.error("❌ getTransactions error:", err);
-    res.status(500).json({ message: "Không thể lấy danh sách giao dịch!", error: err });
+    res.status(500).json({
+      message: "Không thể lấy danh sách giao dịch!",
+      error: err,
+    });
   }
 };

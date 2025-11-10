@@ -6,6 +6,7 @@ import cloudinary from "../../utils/cloudinary";
 import { v4 as uuid } from 'uuid';
 import { getExchangeRate } from "../../services/exchangeRate";
 import { getEndOfDay, getStartOfDay } from "../../utils/dateHelper";
+import Notification from "../../models/Notification";
 
 // Hàm xử lý chung để lấy tỷ giá và chuẩn bị dữ liệu giao dịch
 const processTransactionData = async (data: any) => {
@@ -73,6 +74,7 @@ export const adminUpdateTransaction = async (
 ) => {
   try {
     const { id } = req.params;
+    // 1. Lấy "reason" từ body
     const {
       amount,
       type,
@@ -84,28 +86,29 @@ export const adminUpdateTransaction = async (
       existingImages,
       currency,
       goalId,
-      userId, // Admin có thể chỉ định userId
+      userId,
+      reason, // <-- LẤY LÝ DO
     } = req.body;
 
+    // 2. Tìm giao dịch GỐC (để so sánh)
+    const originalTx = await Transaction.findById(id);
+    if (!originalTx) {
+      res.status(404).json({ message: "Giao dịch không tồn tại!" });
+      return;
+    }
+    // Lưu lại user ID gốc phòng trường hợp admin đổi chủ sở hữu
+    const originalUserId = originalTx.user;
+
+    // (Logic xử lý data và ảnh của bạn giữ nguyên)
     const processedData = await processTransactionData({
-      currency,
-      amount,
-      type,
-      category,
-      note,
-      date,
-      isRecurring,
-      recurringDay,
+      currency, amount, type, category, note, date, isRecurring, recurringDay,
       goalId: goalId || null,
     });
-
+    // ... (logic xử lý keepImages và newUploadedImages giữ nguyên) ...
     let keepImages: string[] = [];
     if (existingImages) {
-      keepImages = Array.isArray(existingImages)
-        ? existingImages
-        : [existingImages];
+      keepImages = Array.isArray(existingImages) ? existingImages : [existingImages];
     }
-
     let newUploadedImages: string[] = [];
     if (req.files && Array.isArray(req.files)) {
       const uploadPromises = (req.files as Express.Multer.File[]).map(
@@ -122,43 +125,84 @@ export const adminUpdateTransaction = async (
       const results = await Promise.all(uploadPromises);
       newUploadedImages = results.map((result) => result.secure_url);
     }
-
     const isRecurringBool = isRecurring === "true" || isRecurring === true;
     const finalImages = [...keepImages, ...newUploadedImages];
 
-    const updateFields = {
+    const updateFields: any = {
       amount: processedData.amount,
       type: processedData.type,
       category: processedData.category,
       note: processedData.note,
       date: processedData.date ? new Date(processedData.date) : undefined,
       isRecurring: isRecurringBool,
-      recurringDay: isRecurringBool
-        ? processedData.recurringDay
-        : undefined,
+      recurringDay: isRecurringBool ? processedData.recurringDay : undefined,
       receiptImage: finalImages,
       currency: processedData.currency,
       exchangeRate: processedData.exchangeRate,
       goalId: processedData.goalId || null,
-      user: userId, // Admin cập nhật user
+      user: userId || originalUserId, // Cập nhật user nếu admin chỉ định
     };
 
+    // 3. So sánh thay đổi
+    const changes: string[] = [];
+    const originalAmountBase = originalTx.amount * (originalTx.exchangeRate || 1);
+    const newAmountBase = processedData.amount * (processedData.exchangeRate || 1);
+
+    if (originalAmountBase !== newAmountBase) {
+      changes.push(`Số tiền từ <${originalAmountBase}> thành <${newAmountBase}>`);
+    }
+    if (originalTx.category !== processedData.category) {
+      changes.push(`Danh mục từ "<${originalTx.category}>" thành "<${processedData.category}>"`);
+    }
+    if (originalTx.date !== updateFields.date) {
+      changes.push(`Ngày từ <${originalTx.date}> thành <${updateFields.date}>`);
+    }
+    if (originalTx.note !== processedData.note) {
+      changes.push(`Ghi chú (từ "<${originalTx.note || ''}>" thành "<${processedData.note || ''}>")`);
+    }
+    if (originalUserId.toString() !== updateFields.user.toString()) {
+      changes.push(`Chủ sở hữu giao dịch đã bị thay đổi (bởi admin)`);
+    }
+
+    // 4. Cập nhật giao dịch
     const updatedTx = await Transaction.findByIdAndUpdate(id, updateFields, {
       new: true,
     });
+    // (Lưu ý: updatedTx đã là bản mới, chúng ta dùng originalTx để so sánh)
 
-    if (!updatedTx) {
-      res.status(404).json({ message: "Giao dịch không tồn tại!" });
-      return;
+    // 5. Gửi thông báo (nếu có thay đổi)
+    if (changes.length > 0) {
+      const txDesc = `[${originalAmountBase} - ${originalTx.category}]`;
+      const message = `Một quản trị viên đã cập nhật giao dịch ${txDesc} của bạn.
+                       Các thay đổi: ${changes.join(", ")}.
+                       ${reason ? `Lý do: ${reason}` : ""}`;
+
+      await Notification.create({
+        user: originalUserId, // Luôn thông báo cho chủ sở hữu GỐC
+        type: "info",
+        message: message,
+      });
+
+      // Nếu admin đổi chủ sở hữu, cũng thông báo cho user MỚI
+      if (originalUserId.toString() !== updatedTx!.user.toString()) {
+        await Notification.create({
+            user: updatedTx!.user,
+            type: "info",
+            message: `Một quản trị viên đã chuyển giao dịch ${txDesc} cho bạn. 
+            ${reason ? `Lý do: ${reason}` : ""}`
+        });
+      }
     }
 
+    // 6. Ghi Log
     await logAction(req, {
       action: "Admin Update Transaction",
       statusCode: 200,
-      description: `Admin đã cập nhật giao dịch ID: ${id}`,
+      description: `Admin đã cập nhật giao dịch ID: ${id}. Lý do: ${reason || "Không có"}. Thay đổi: ${changes.join(", ") || "Không có"}`,
     });
 
     res.json(updatedTx);
+
   } catch (error) {
     console.error("❌ Lỗi khi admin cập nhật giao dịch:", error);
     await logAction(req, {
@@ -172,42 +216,44 @@ export const adminUpdateTransaction = async (
 };
 
 // Hàm này không có lỗi, giữ nguyên
-export const adminDeleteTransaction = async (
-  req: AuthRequest,
-  res: Response
-) => {
-  try {
-    const { id } = req.params;
-    const deletedTx = await Transaction.findByIdAndDelete(id);
+// export const adminDeleteTransaction = async (
+//   req: AuthRequest,
+//   res: Response
+// ) => {
+//   try {
+//     const { id } = req.params;
+//     const deletedTx = await Transaction.findByIdAndDelete(id);
 
-    if (!deletedTx) {
-      return res.status(404).json({ message: "Giao dịch không tồn tại!" });
-    }
+//     if (!deletedTx) {
+//       return res.status(404).json({ message: "Giao dịch không tồn tại!" });
+//     }
 
-    await logAction(req, {
-      action: "Admin Delete Transaction",
-      statusCode: 200,
-      description: `Admin đã xóa giao dịch ID: ${id}`,
-    });
+//     await logAction(req, {
+//       action: "Admin Delete Transaction",
+//       statusCode: 200,
+//       description: `Admin đã xóa giao dịch ID: ${id}`,
+//     });
 
-    res.json({ message: "Đã xóa giao dịch thành công" });
-  } catch (error) {
-    console.error("❌ Lỗi khi admin xóa giao dịch:", error);
-    await logAction(req, {
-      action: "Admin Delete Transaction",
-      statusCode: 500,
-      description: "Lỗi khi admin xóa giao dịch",
-      level: "error",
-    });
-    res.status(500).json({ message: "Không thể xóa!", error });
-  }
-};
+//     res.json({ message: "Đã xóa giao dịch thành công" });
+//   } catch (error) {
+//     console.error("❌ Lỗi khi admin xóa giao dịch:", error);
+//     await logAction(req, {
+//       action: "Admin Delete Transaction",
+//       statusCode: 500,
+//       description: "Lỗi khi admin xóa giao dịch",
+//       level: "error",
+//     });
+//     res.status(500).json({ message: "Không thể xóa!", error });
+//   }
+// };
 
 export const deleteTransaction = async (req: AuthRequest, res: Response) => {
   try {
-    const result = await Transaction.findByIdAndDelete(req.params.id);
+    const { id } = req.params;
+    const { reason } = req.body; // <-- 2. Lấy lý do từ body (giống banUser)
+    const deletedTx = await Transaction.findByIdAndDelete(req.params.id);
 
-    if (!result) {
+    if (!deletedTx) {
       await logAction(req, {
         action: "Xoá giao dịch thất bại",
         statusCode: 404,
@@ -219,10 +265,34 @@ export const deleteTransaction = async (req: AuthRequest, res: Response) => {
       return;
     }
 
+    // --- 4. GỬI THÔNG BÁO CHO NGƯỜI DÙNG VỚI CHI TIẾT ---
+
+    // Format lại dữ liệu cho dễ đọc
+    const txAmount = (
+      deletedTx.amount * (deletedTx.exchangeRate || 1) // Lấy giá trị đã quy đổi
+    ).toLocaleString("vi-VN", { style: "currency", currency: "VND" });
+    const txDate = new Date(deletedTx.date).toLocaleDateString("vi-VN");
+    const txNote = deletedTx.note
+      ? `"${deletedTx.note}"`
+      : `(không có ghi chú)`;
+
+    // Tạo thông điệp rõ ràng
+    const message = `Một quản trị viên đã xóa giao dịch của bạn: 
+                     [${txAmount} - ${deletedTx.category} - ${txDate}]
+                     (Ghi chú: ${txNote}). 
+                     ${reason ? `Lý do: ${reason}` : ""}`;
+
+    await Notification.create({
+      user: deletedTx.user, // Gửi đến user sở hữu giao dịch
+      type: "info", // Loại thông báo
+      message: message,
+    });
+    // ----------------------------------------------------
+
     await logAction(req, {
       action: "Xoá giao dịch",
       statusCode: 200,
-      description: `Đã xoá giao dịch ID ${req.params.id}`,
+      description: `Đã xoá giao dịch ID ${id}`,
       level: "info",
     });
 
@@ -240,7 +310,7 @@ export const deleteTransaction = async (req: AuthRequest, res: Response) => {
   }
 };
 
-export const getTransactionStats = async (req: Request, res: Response) => {
+export const getTransactionStats = async (req: AuthRequest, res: Response) => {
   try {
     // --- SỬA LỖI 1: TÍNH TỔNG DỰA TRÊN TỶ GIÁ ---
     const totalIncome = await Transaction.aggregate([

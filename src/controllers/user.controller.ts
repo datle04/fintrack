@@ -60,3 +60,36 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ message: "Không thể cập nhật hồ sơ", error });
   }
 };
+
+// --- HÀM GET USER INFO MỚI ---
+export const getUserInfo = async (req: AuthRequest, res: Response) => {
+  try {
+    // userId đã được gắn vào req bởi middleware requireAuth
+    const userId = req.userId;
+
+    const user = await User.findById(userId).select('-password -refreshToken'); // Luôn loại bỏ password
+
+    if (!user) {
+      // Trường hợp hiếm gặp nếu user bị xóa sau khi token được cấp
+      res.status(404).json({ message: 'Không tìm thấy người dùng' });
+      return;
+    }
+
+    // Chỉ trả về các trường an toàn
+    res.status(200).json({
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      dob: user.dob,
+      avatarUrl: user.avatarUrl,
+      currency: user.currency,
+      role: user.role,
+      address: user.address, //
+      phone: user.phone, //
+      // Thêm các trường khác nếu cần và đảm bảo chúng an toàn
+    });
+  } catch (err) {
+    console.error('❌ Lỗi khi lấy thông tin người dùng:', err);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+};

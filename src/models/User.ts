@@ -11,7 +11,8 @@ export interface IUser extends Document {
   dob?: string;
   phone?: string;
   address?: string;
-  isBanned: { type: Boolean, default: false }
+  isBanned: { type: Boolean, default: false };
+  refreshToken?: string;
 }
 
 const UserSchema = new Schema<IUser>(
@@ -29,7 +30,8 @@ const UserSchema = new Schema<IUser>(
             enum: ['user', 'admin'],
             default: 'user'
         },
-        isBanned: {type: Boolean, default: false}
+        isBanned: {type: Boolean, default: false},
+        refreshToken: { type: String }
     },
     {timestamps: true}  
 )

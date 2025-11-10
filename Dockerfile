@@ -55,6 +55,8 @@ COPY package*.json ./
 # 4. Cài dependencies (chỉ production nếu cần)
 RUN npm install
 
+RUN npm install -g nodemon
+
 # 5. Copy toàn bộ source vào container
 COPY . .
 
@@ -65,4 +67,4 @@ RUN npm run build
 EXPOSE 5000
 
 # 8. Chạy server (hoặc start file JS sau khi build)
-CMD ["node", "dist/index.js"]
+CMD ["nodemon", "dist/index.js"]

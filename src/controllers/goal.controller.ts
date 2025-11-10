@@ -125,7 +125,7 @@ export const createGoal = async (req: AuthRequest, res: Response) => {
  * ============================================================ */
 export const getGoals = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?._id;
+    const userId = req.userId;
     if (!userId) {
         res.status(401).json({ message: 'Unauthorized' });
         return;
@@ -143,7 +143,7 @@ export const getGoals = async (req: AuthRequest, res: Response) => {
  * ============================================================ */
 export const updateGoal = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?._id;
+    const userId = req.userId;
     if (!userId) {
         res.status(401).json({ message: 'Unauthorized' });
         return;
@@ -179,7 +179,7 @@ export const updateGoal = async (req: AuthRequest, res: Response) => {
  * ============================================================ */
 export const deleteGoal = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?._id;
+    const userId = req.userId;
     if (!userId) {
         res.status(401).json({ message: 'Unauthorized' });
         return;

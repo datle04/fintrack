@@ -3,8 +3,9 @@ import Transaction from "../../models/Transaction";
 import { Request, Response } from "express";
 import Log from "../../models/Log";
 import {SessionModel} from "../../models/Session"
+import { AuthRequest } from "../../middlewares/requireAuth";
 
-export const getAdminDashboardStats = async (req: Request, res: Response) => {
+export const getAdminDashboardStats = async (req: AuthRequest, res: Response) => {
   const userCount = await User.countDocuments();
   const transactionCount = await Transaction.countDocuments();
 
@@ -42,7 +43,7 @@ export const getAdminDashboardStats = async (req: Request, res: Response) => {
   });
 };
 
-export const getMonthlyIncomeExpenseStats = async (req: Request, res: Response) => {
+export const getMonthlyIncomeExpenseStats = async (req: AuthRequest, res: Response) => {
   const year = parseInt(req.query.year as string) || new Date().getFullYear();
 
   const startOfYear = new Date(year, 0, 1);   // 1 Jan
@@ -99,7 +100,7 @@ export const getMonthlyIncomeExpenseStats = async (req: Request, res: Response) 
   res.json(result);
 };
 
-export const getMonthlyTransactionCount = async (req: Request, res: Response) => {
+export const getMonthlyTransactionCount = async (req: AuthRequest, res: Response) => {
   try {
     const year = parseInt(req.query.year as string) || new Date().getFullYear();
 
@@ -146,7 +147,7 @@ export const getMonthlyTransactionCount = async (req: Request, res: Response) =>
  * [MỚI] API Lấy số lượng người dùng đăng ký mới (7 ngày qua)
  * GET /admin/dashboard/user-signups
  */
-export const getNewUserSignups = async (req: Request, res: Response) => {
+export const getNewUserSignups = async (req: AuthRequest, res: Response) => {
   try {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -179,7 +180,7 @@ export const getNewUserSignups = async (req: Request, res: Response) => {
  * [MỚI] API Lấy các log lỗi gần đây
  * GET /admin/dashboard/recent-errors?limit=5
  */
-export const getRecentErrorLogs = async (req: Request, res: Response) => {
+export const getRecentErrorLogs = async (req: AuthRequest, res: Response) => {
   try {
     const limit = parseInt(req.query.limit as string) || 5;
 
@@ -199,7 +200,7 @@ export const getRecentErrorLogs = async (req: Request, res: Response) => {
  * [ĐÃ SỬA] API Thống kê người dùng hoạt động
  * GET /admin/dashboard/active-users
  */
-export const getActiveUsersStats = async (req: Request, res: Response) => {
+export const getActiveUsersStats = async (req: AuthRequest, res: Response) => {
   try {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
@@ -228,7 +229,7 @@ export const getActiveUsersStats = async (req: Request, res: Response) => {
  * [MỚI] API Lấy top danh mục chi tiêu toàn hệ thống
  * GET /admin/dashboard/top-categories?limit=5
  */
-export const getTopExpenseCategories = async (req: Request, res: Response) => {
+export const getTopExpenseCategories = async (req: AuthRequest, res: Response) => {
   try {
     const limit = parseInt(req.query.limit as string) || 5;
 

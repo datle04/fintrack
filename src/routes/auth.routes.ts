@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { login, register } from '../controllers/auth.controller';
+import { login, logout, refreshToken, register } from '../controllers/auth.controller';
 import { logActivity } from '../middlewares/logActivity';
 import express from "express";
 import jwt from "jsonwebtoken";
@@ -11,6 +11,8 @@ router.use(logActivity);
 
 router.post("/register", register);
 router.post("/login", login);
+router.post('/refresh', refreshToken);
+router.post('/logout', logout);
 router.post("/verify", async (req, res) => {
   try {
     const { token } = req.body;

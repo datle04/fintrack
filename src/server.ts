@@ -9,6 +9,7 @@ import app from './app';
 import { setupSessionTracking } from './socket/sessionTracker';
 import { initRecurringTransactionJob } from './cron/recurringJob';
 import { initCheckBudgetAlert } from './cron/checkBudgetAlert';
+import { startCleanupReportsJob } from './cron/cleanupReportsJob';
 
 
 const PORT = process.env.PORT || 5000;
@@ -33,6 +34,7 @@ setupSessionTracking(io);
 // Cron jobs
 initRecurringTransactionJob();
 initCheckBudgetAlert();
+startCleanupReportsJob();
 
 // MongoDB connect & start server
 const startServer = async () => {

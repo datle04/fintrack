@@ -14,7 +14,7 @@ dayjs.extend(utc);
 
 // --- HELPER FUNCTIONS ---
 // Hàm xử lý logic quy đổi Ngân sách (Cần gọi getExchangeRate)
-const processBudgetData = async (data: any) => {
+export const processBudgetData = async (data: any) => {
   const originalCurrency = (data.currency || 'VND').toUpperCase();
   const originalTotalAmount = Number(data.totalAmount);
   const originalCategories = data.categories || [];
