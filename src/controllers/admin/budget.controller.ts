@@ -6,6 +6,7 @@ import { logAction } from "../../utils/logAction";
 import Budget from "../../models/Budget";
 import { AuthRequest } from "../../middlewares/requireAuth";
 import { processTransactionData } from "../transaction.controller";
+import { createAndSendNotification } from "../../services/notification.service";
 
 // --- Helper Functions (Để format thông báo) ---
 const formatVND = (num: number) =>
@@ -187,15 +188,15 @@ export const adminUpdateBudget = async (req: AuthRequest, res: Response) => {
 
     // 7. Gửi thông báo (nếu có thay đổi)
     if (changes.length > 0) {
-      const message = `Một quản trị viên đã cập nhật ngân sách tháng ${originalBudget.month}/${originalBudget.year} của bạn.
-                       Các thay đổi: ${changes.join(", ")}.
-                       ${reason ? `Lý do: ${reason}` : ""}`;
-                       
-      await Notification.create({
-        user: updatedBudget.user,
-        type: "info",
-        message: message,
-      });
+      const message = `Một quản trị viên đã cập nhật ngân sách tháng ${originalBudget.month}/${originalBudget.year} của bạn.\nCác thay đổi: ${changes.join(", ")}.\n${reason ? `Lý do: ${reason}` : ""}`;
+      
+      // 🔥 DÙNG HÀM SERVICE ĐỂ GỬI REAL-TIME
+      await createAndSendNotification(
+        updatedBudget.user._id, // Lấy ID user từ budget đã lưu
+        "info",                 // Type
+        message,                // Message
+        "/budget"               // Link (optional) - để user bấm vào xem
+      );
     }
 
     // 8. Ghi Log
@@ -250,11 +251,13 @@ export const adminDeleteBudget = async (req: AuthRequest, res: Response) => {
     const message = `Một quản trị viên đã xóa ngân sách tháng ${deletedBudget.month}/${deletedBudget.year} của bạn.
                      ${reason ? `Lý do: ${reason}` : ""}`;
 
-    await Notification.create({
-      user: deletedBudget.user,
-      type: "info",
-      message: message,
-    });
+    // 🔥 DÙNG HÀM SERVICE ĐỂ GỬI REAL-TIME
+    await createAndSendNotification(
+      deletedBudget.user._id, // Lấy ID user từ budget đã lưu
+      "info",                 // Type
+      message,                // Message
+      "/budget"               // Link (optional) - để user bấm vào xem
+    );
 
     // 3. Ghi Log
     await logAction(req, {

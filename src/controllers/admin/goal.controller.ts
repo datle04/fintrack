@@ -6,6 +6,7 @@ import Transaction from "../../models/Transaction"; //
 import { AuthRequest } from "../../middlewares/requireAuth"; //
 import { logAction } from "../../utils/logAction"; //
 import Notification from "../../models/Notification";
+import { createAndSendNotification } from "../../services/notification.service";
 
 // --- Helper Function (Lấy từ goal.controller.ts của user) ---
 //
@@ -220,11 +221,13 @@ export const adminDeleteGoal = async (req: AuthRequest, res: Response) => {
     const message = `Một quản trị viên đã xóa mục tiêu của bạn: "${deletedGoal.name}".
                      ${reason ? `Lý do: ${reason}` : ""}`;
                      
-    await Notification.create({
-      user: deletedGoal.userId, // Gửi đến user sở hữu mục tiêu
-      type: "admin_action",
-      message: message,
-    });
+    // 🔥 DÙNG HÀM SERVICE ĐỂ GỬI REAL-TIME
+    await createAndSendNotification(
+      deletedGoal.userId, // Lấy ID user từ budget đã lưu
+      "info",                 // Type
+      message,                // Message
+      "/goal"               // Link (optional) - để user bấm vào xem
+    );
     // ------------------------------------
 
     // 4. Gỡ bỏ goalId khỏi tất cả các giao dịch liên quan (Giữ nguyên)

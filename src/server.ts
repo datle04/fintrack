@@ -28,6 +28,20 @@ const io = new Server(server, {
   pingTimeout: 30000, // nếu 3 giây không có pong thì disconnect
 });
 
+// --- QUAN TRỌNG: Gán vào global ---
+global.io = io; 
+
+// Cấu hình connection
+io.on("connection", (socket) => {
+  const userId = socket.handshake.query.userId as string;
+  console.log(`⚡ New connection: ${socket.id}`);
+  if (userId) {
+    socket.join(userId); // Cho user vào "phòng" riêng
+    console.log(`✅ Socket ${socket.id} joined rooms:`, Array.from(socket.rooms));
+  } else {
+    console.log("⚠️ Connection REJECTED joining room (No userId in query)");
+  }
+});
 // Thiết lập theo dõi phiên người dùng
 setupSessionTracking(io);
 

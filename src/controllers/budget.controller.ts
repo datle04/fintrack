@@ -90,7 +90,7 @@ export const setOrUpdateBudget = async (req: AuthRequest, res: Response) => {
 
     // 2. Tạo mảng categories mới với đầy đủ thông tin
     // `categories` ở đây là lấy từ `req.body` (chứa giá trị gốc)
-    const finalCategories = categories.map((originalCategory: any) => {
+    const finalCategories = categories?.map((originalCategory: any) => {
       // Lấy số tiền đã quy đổi từ Map, nếu không có thì mặc định là 0
       const convertedAmount =
         convertedCategoriesMap.get(originalCategory.category) || 0;

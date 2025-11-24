@@ -20,10 +20,6 @@ const LogSchema = new Schema<ILog>({
   statusCode: Number,
   description: String,
   level: { type: String, enum: ["info", "warning", "error", "critical"], default: "info" },
-
-  // --- SỬA LỖI Ở ĐÂY ---
-  // Tên trường là 'user' (dựa theo file logAction.ts của bạn)
-  // Bạn cần thêm "ref: 'User'" để populate hoạt động.
   user: {
     type: Schema.Types.ObjectId,
     ref: "User", // <-- THÊM DÒNG NÀY

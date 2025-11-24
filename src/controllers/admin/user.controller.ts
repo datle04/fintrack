@@ -14,6 +14,7 @@ import path from "path";
 import fs from 'fs';
 import { AuthRequest } from "../../middlewares/requireAuth";
 import { sendEmail } from "../../utils/sendEmail";
+import { createAndSendNotification } from "../../services/notification.service";
 
 export const getAllUsers = async (req: AuthRequest, res: Response) => {
   try {
@@ -51,32 +52,6 @@ export const getAllUsers = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ message: "Lỗi server!" });
   }
 };
-
-
-
-// export const deleteUser = async (req: Request, res: Response) => {
-//   const user = await User.findByIdAndDelete(req.params.userId);
-
-//   if (!user) {
-//     await logAction(req, {
-//       action: "DELETE_USER_FAILED",
-//       statusCode: 404,
-//       description: `Không tìm thấy người dùng có ID ${req.params.userId}`,
-//       level: "warning"
-//     });
-//     res.status(404).json({ message: "Không tìm thấy người dùng" });
-//     return;
-//   }
-
-//   await logAction(req, {
-//     action: "DELETE_USER",
-//     statusCode: 200,
-//     description: `Đã xóa người dùng ${user.name} (${user._id})`,
-//     level: "critical"
-//   });
-
-//   res.json({ message: "Đã xoá người dùng thành công", user });
-// };
 
 export const updateUserInfo = async (req: AuthRequest, res: Response) => {
   const { userId } = req.params;
@@ -157,11 +132,12 @@ export const updateUserInfo = async (req: AuthRequest, res: Response) => {
                      ${reason ? `Lý do: ${reason}` : ""}`;
                      
     // 5a. Gửi thông báo trong ứng dụng
-    await Notification.create({
-      user: userId,
-      type: "info",
-      message: message,
-    });
+    await createAndSendNotification(
+      userId,         // Lấy ID user từ budget đã lưu
+      "info",                 // Type
+      message,                // Message
+      "/setting"           // Link (optional) - để user bấm vào xem
+    );
 
     // 5b. Gửi email nếu thay đổi email hoặc vai trò
     if (emailChanged || roleChanged) {

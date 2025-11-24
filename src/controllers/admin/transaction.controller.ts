@@ -7,6 +7,7 @@ import { v4 as uuid } from 'uuid';
 import { getExchangeRate } from "../../services/exchangeRate";
 import { getEndOfDay, getStartOfDay } from "../../utils/dateHelper";
 import Notification from "../../models/Notification";
+import { createAndSendNotification } from "../../services/notification.service";
 
 // Hàm xử lý chung để lấy tỷ giá và chuẩn bị dữ liệu giao dịch
 const processTransactionData = async (data: any) => {
@@ -177,20 +178,23 @@ export const adminUpdateTransaction = async (
                        Các thay đổi: ${changes.join(", ")}.
                        ${reason ? `Lý do: ${reason}` : ""}`;
 
-      await Notification.create({
-        user: originalUserId, // Luôn thông báo cho chủ sở hữu GỐC
-        type: "info",
-        message: message,
-      });
+      // 🔥 DÙNG HÀM SERVICE ĐỂ GỬI REAL-TIME
+      await createAndSendNotification(
+        originalUserId, // Lấy ID user từ budget đã lưu
+        "info",                 // Type
+        message,                // Message
+        "/transaction"           // Link (optional) - để user bấm vào xem
+      );
 
       // Nếu admin đổi chủ sở hữu, cũng thông báo cho user MỚI
       if (originalUserId.toString() !== updatedTx!.user.toString()) {
-        await Notification.create({
-            user: updatedTx!.user,
-            type: "info",
-            message: `Một quản trị viên đã chuyển giao dịch ${txDesc} cho bạn. 
-            ${reason ? `Lý do: ${reason}` : ""}`
-        });
+        await createAndSendNotification(
+          updatedTx!.user, // Lấy ID user từ budget đã lưu
+          "info",                 // Type
+          `Một quản trị viên đã chuyển giao dịch ${txDesc} cho bạn. 
+            ${reason ? `Lý do: ${reason}` : ""}`,                // Message
+          "/transaction"           // Link (optional) - để user bấm vào xem
+        );
       }
     }
 
@@ -215,37 +219,6 @@ export const adminUpdateTransaction = async (
   }
 };
 
-// Hàm này không có lỗi, giữ nguyên
-// export const adminDeleteTransaction = async (
-//   req: AuthRequest,
-//   res: Response
-// ) => {
-//   try {
-//     const { id } = req.params;
-//     const deletedTx = await Transaction.findByIdAndDelete(id);
-
-//     if (!deletedTx) {
-//       return res.status(404).json({ message: "Giao dịch không tồn tại!" });
-//     }
-
-//     await logAction(req, {
-//       action: "Admin Delete Transaction",
-//       statusCode: 200,
-//       description: `Admin đã xóa giao dịch ID: ${id}`,
-//     });
-
-//     res.json({ message: "Đã xóa giao dịch thành công" });
-//   } catch (error) {
-//     console.error("❌ Lỗi khi admin xóa giao dịch:", error);
-//     await logAction(req, {
-//       action: "Admin Delete Transaction",
-//       statusCode: 500,
-//       description: "Lỗi khi admin xóa giao dịch",
-//       level: "error",
-//     });
-//     res.status(500).json({ message: "Không thể xóa!", error });
-//   }
-// };
 
 export const deleteTransaction = async (req: AuthRequest, res: Response) => {
   try {
@@ -282,11 +255,12 @@ export const deleteTransaction = async (req: AuthRequest, res: Response) => {
                      (Ghi chú: ${txNote}). 
                      ${reason ? `Lý do: ${reason}` : ""}`;
 
-    await Notification.create({
-      user: deletedTx.user, // Gửi đến user sở hữu giao dịch
-      type: "info", // Loại thông báo
-      message: message,
-    });
+    await createAndSendNotification(
+      deletedTx.user, // Lấy ID user từ budget đã lưu
+      "info",                 // Type
+      message,                // Message
+      "/transaction"           // Link (optional) - để user bấm vào xem
+    );
     // ----------------------------------------------------
 
     await logAction(req, {
