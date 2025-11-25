@@ -26,7 +26,7 @@ export const chatProxy = async (req: Request, res: Response) => {
     return;
 
   } catch (error: any) {
-    console.error("Lỗi Proxy Chatbot:", error.message);
+    console.error("Lỗi Proxy Chatbot:", error);
     // Xử lý lỗi nếu Chatbot bị sập hoặc trả về lỗi
     if (error.response) {
       res.status(error.response.status).json(error.response.data);
