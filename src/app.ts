@@ -21,7 +21,9 @@ import goalRoutes from './routes/goal.routes';
 // import cronRoutes from './routes/cron.routes';
 
 const app = express();
-
+// ======production==========
+app.set('trust proxy', 1);
+//===========================
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 
 // Middleware
