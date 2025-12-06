@@ -175,7 +175,7 @@ export const adminUpdateGoal = async (req: AuthRequest, res: Response) => {
                        
       await Notification.create({
         user: updatedGoal.userId, //
-        type: "admin_action",
+        type: "info",
         message: message,
       });
     }
