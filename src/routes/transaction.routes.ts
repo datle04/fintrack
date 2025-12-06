@@ -24,16 +24,6 @@ router.delete('/:id', deleteTransaction);
 router.get('/categories/used', getUsedCategories);
 router.get('/recurring', getActiveRecurringTransactions);
 router.delete("/recurring/:id", cancelRecurringTransaction);
-router.post("/categories/suggest", async (req, res) => {
-  try {
-    const { note } = req.body;
-    const suggestedCategory = await getCategorySuggestion(note);
-    res.json({ suggestedCategory });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Lỗi gợi ý danh mục" });
-  }
-});
 // Route test recurring
 router.post("/test-recurring", triggerRecurringTest);
 router.get('/top-transactions', getTopTransactions);

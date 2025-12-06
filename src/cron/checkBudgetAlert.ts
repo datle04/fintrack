@@ -1,67 +1,30 @@
 import cron from 'node-cron';
-import dayjs from 'dayjs';
 import Budget from '../models/Budget';
-import Notification from '../models/Notification';
-import mongoose from 'mongoose';
-
-// [Helper] Gửi thông báo VÀ cập nhật alertLevel (KHÔNG ĐỔI)
-const sendNotificationAndUpdateLevel = async (
-    user: mongoose.Types.ObjectId,
-    message: string,
-    type: 'budget_warning' | 'budget_category_warning',
-    budgetId: mongoose.Types.ObjectId,
-    newAlertLevel: number,
-    isCategory: boolean = false,
-    categoryName: string = ""
-) => {
-    // ... (Giữ nguyên logic helper này)
-    const existing = await Notification.findOne({ user, type, message });
-    if (existing) {
-        console.log(`[Budget Alert] Đã gửi thông báo này trước đó, bỏ qua: ${message}`);
-        return;
-    }
-    await Notification.create({ user, type, message });
-    console.log(`[Budget Alert] user=${user}: ${message}`);
-
-    if (isCategory) {
-        await Budget.updateOne(
-            { _id: budgetId, "categories.category": categoryName },
-            { $set: { "categories.$.alertLevel": newAlertLevel } }
-        );
-    } else {
-        await Budget.updateOne(
-            { _id: budgetId },
-            { $set: { alertLevel: newAlertLevel } }
-        );
-    }
-};
-
+import { getThresholdLevel, updateAlertLevelAndNotify } from '../services/budget.alert.service';
+import { Types } from 'mongoose';
 
 /**
- * [Refactored] Logic chính của Cron Job
+ * Cron Job: Quét toàn bộ ngân sách để kiểm tra cảnh báo
+ * (Dùng để "vét" các giao dịch định kỳ hoặc lỗi sót từ real-time)
  */
 export const checkBudgetAlert = async () => {
     const now = new Date();
-    const currentMonth = now.getMonth() + 1; // 1-12
+    const currentMonth = now.getMonth() + 1; 
     const currentYear = now.getFullYear();
 
-    console.log(`[Cron] Kiểm tra ngân sách T${currentMonth}/${currentYear} lúc ${now.toLocaleString()}`);
+    console.log(`[Cron] 🕒 Kiểm tra ngân sách T${currentMonth}/${currentYear} lúc ${now.toLocaleString()}`);
 
-    // --- Biến thời gian cho query ---
     const startOfMonth = new Date(Date.UTC(currentYear, currentMonth - 1, 1, 0, 0, 0));
     const endOfMonth = new Date(Date.UTC(currentYear, currentMonth, 0, 23, 59, 59, 999));
 
-    try { // <-- Thêm try...catch để bắt lỗi aggregation
-        // --- ÁP DỤNG PIPELINE ĐÃ TEST ---
+    try {
+        // --- AGGREGATION PIPELINE (GIỮ NGUYÊN CỦA BẠN - RẤT TỐT) ---
         const budgetsWithSpending = await Budget.aggregate([
-            // 1. Chỉ tìm budget của tháng này
+            // ... (Copy nguyên xi pipeline từ code cũ của bạn vào đây) ...
+            // ... Từ $match đến $project ...
             {
-                $match: {
-                    month: currentMonth,
-                    year: currentYear
-                }
+                $match: { month: currentMonth, year: currentYear }
             },
-            // 2. Lấy TẤT CẢ giao dịch 'expense' của user đó trong tháng
             {
                 $lookup: {
                     from: "transactions",
@@ -83,46 +46,30 @@ export const checkBudgetAlert = async () => {
                     as: "transactions"
                 }
             },
-            // 3. "Mở" mảng transactions ra thành từng dòng
             {
-                $unwind: {
-                    path: "$transactions",
-                    preserveNullAndEmptyArrays: true
-                }
+                $unwind: { path: "$transactions", preserveNullAndEmptyArrays: true }
             },
-            // 4. Nhóm theo Budget VÀ Category để tính tổng chi cho từng category
             {
                 $group: {
-                    _id: {
-                        budgetId: "$_id",
-                        category: { $ifNull: ["$transactions.category", "uncategorized"] }
-                    },
+                    _id: { budgetId: "$_id", category: { $ifNull: ["$transactions.category", "uncategorized"] } },
                     doc: { $first: "$$ROOT" },
                     categorySpentBase: {
                         $sum: {
-                            $ifNull: [
-                                { $multiply: ["$transactions.amount", { $ifNull: ["$transactions.exchangeRate", 1] }] },
-                                0
-                            ]
+                            $ifNull: [{ $multiply: ["$transactions.amount", { $ifNull: ["$transactions.exchangeRate", 1] }] }, 0]
                         }
                     }
                 }
             },
-            // 5. Nhóm lại theo Budget (gom các category lại)
             {
                 $group: {
                     _id: "$_id.budgetId",
                     doc: { $first: "$doc" },
                     totalSpentBase: { $sum: "$categorySpentBase" },
                     categorySpentArray: {
-                        $push: {
-                            k: { $toString: "$_id.category" }, // Ép thành chuỗi
-                            v: "$categorySpentBase"
-                        }
+                        $push: { k: { $toString: "$_id.category" }, v: "$categorySpentBase" }
                     }
                 }
             },
-            // 6. Tái cấu trúc lại document
             {
                 $project: {
                     _id: "$_id",
@@ -137,64 +84,80 @@ export const checkBudgetAlert = async () => {
                 }
             }
         ]);
-        // --- KẾT THÚC PIPELINE ---
 
-        console.log(`[Cron] Tìm thấy ${budgetsWithSpending.length} budget của tháng này để kiểm tra.`);
+        console.log(`[Cron] 📊 Tìm thấy ${budgetsWithSpending.length} budget.`);
 
-        const thresholds = [80, 90, 100];
-
-        // Lặp qua kết quả (LOGIC NÀY GIỮ NGUYÊN)
-        for (const budget of budgetsWithSpending) {
-            // ... (Logic lặp và sendNotificationAndUpdateLevel giữ nguyên)
+        // --- LOGIC XỬ LÝ (ĐÃ CẬP NHẬT THEO SYNC STATE) ---
+        // Sử dụng Promise.all để chạy nhanh hơn thay vì loop tuần tự
+        await Promise.all(budgetsWithSpending.map(async (budget) => {
             const {
                 _id, user, month, year,
                 totalAmount: totalBudgetBase,
-                alertLevel = 0,
+                alertLevel: dbTotalLevel = 0,
                 categories,
                 totalSpentBase,
                 categorySpentMap
             } = budget;
 
-            // --- A. Xử lý Ngân sách TỔNG ---
-            const totalPercentUsed = totalBudgetBase > 0 ? Math.round((totalSpentBase / totalBudgetBase) * 100) : 0;
-            for (const threshold of thresholds) {
-                if (totalPercentUsed >= threshold && alertLevel < threshold) {
-                    const message = `Bạn đã chi tiêu ${totalPercentUsed}% ngân sách tổng tháng ${month}/${year}.`;
-                    await sendNotificationAndUpdateLevel(
-                        user, message, 'budget_warning', _id, threshold, false
-                    );
-                    break;
-                }
+            // === A. Xử lý Ngân sách TỔNG ===
+            const totalPercent = totalBudgetBase > 0 
+                ? Math.round((totalSpentBase / totalBudgetBase) * 100) 
+                : 0;
+            
+            const currentTotalLevel = getThresholdLevel(totalPercent);
+
+            // Gọi Helper chung (xử lý cả tăng và giảm)
+            if (currentTotalLevel !== dbTotalLevel) {
+                const message = `⚠️ Cảnh báo: Bạn đã tiêu ${totalPercent}% tổng ngân sách tháng ${month}/${year}.`;
+                await updateAlertLevelAndNotify(
+                    user,
+                    _id as Types.ObjectId,
+                    currentTotalLevel,
+                    dbTotalLevel,
+                    false, // isCategory
+                    "",
+                    message
+                );
             }
 
-            // --- B. Xử lý Ngân sách DANH MỤC ---
-            if (!categories || categories.length === 0) continue;
-            for (const catBudget of categories) {
-                const { category, amount: categoryBudgetBase, alertLevel: oldCatAlertLevel = 0 } = catBudget;
-                const spent = categorySpentMap[category] || 0;
-                const percentUsed = categoryBudgetBase > 0 ? Math.round((spent / categoryBudgetBase) * 100) : 0;
+            // === B. Xử lý Ngân sách DANH MỤC ===
+            if (categories && categories.length > 0) {
+                await Promise.all(categories.map(async (cat: any) => {
+                    const { category, amount: catBudget, alertLevel: dbCatLevel = 0 } = cat;
+                    
+                    const spent = categorySpentMap[category] || 0;
+                    const catPercent = catBudget > 0 
+                        ? Math.round((spent / catBudget) * 100) 
+                        : 0;
+                    
+                    const currentCatLevel = getThresholdLevel(catPercent);
 
-                for (const threshold of thresholds) {
-                    if (percentUsed >= threshold && oldCatAlertLevel < threshold) {
-                        const message = `Bạn đã chi tiêu ${percentUsed}% ngân sách danh mục "${category}" tháng ${month}/${year}.`;
-                        await sendNotificationAndUpdateLevel(
-                            user, message, 'budget_category_warning', _id, threshold, true, category
+                    if (currentCatLevel !== dbCatLevel) {
+                        const message = `⚠️ Danh mục "${category}" đã dùng hết ${catPercent}% ngân sách.`;
+                        await updateAlertLevelAndNotify(
+                            user,
+                            _id as Types.ObjectId,
+                            currentCatLevel,
+                            dbCatLevel,
+                            true, // isCategory
+                            category,
+                            message
                         );
-                        break;
                     }
-                }
+                }));
             }
-        }
-    } catch (error) { // <-- Bắt lỗi nếu aggregation thất bại
-        console.error("[Cron Error] Lỗi nghiêm trọng khi chạy checkBudgetAlert:", error);
-        // Tùy chọn: Gửi thông báo lỗi cho admin ở đây
+        }));
+
+        console.log(`[Cron] ✅ Hoàn tất kiểm tra.`);
+
+    } catch (error) {
+        console.error("[Cron Error] ❌ Lỗi nghiêm trọng:", error);
     }
 };
 
-/**
- * Hàm khởi tạo Cron Job (KHÔNG ĐỔI)
- */
 export const initCheckBudgetAlert = () => {
-    checkBudgetAlert(); // Dùng để test khi khởi động
-    cron.schedule('30 0 * * *', checkBudgetAlert); // Chạy lúc 00:30 mỗi ngày
+    // Chạy ngay khi khởi động server (để test)
+    checkBudgetAlert(); 
+    // Lên lịch chạy hàng ngày lúc 00:30
+    cron.schedule('30 0 * * *', checkBudgetAlert); 
 };

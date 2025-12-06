@@ -5,6 +5,7 @@ import Goal, { IGoal } from '../models/Goal';
 import { AuthRequest } from '../middlewares/requireAuth';
 import { getConversionRate } from '../services/exchangeRate';
 import Transaction from '../models/Transaction';
+import mongoose from 'mongoose';
 
 const APP_BASE_CURRENCY = 'VND';
 
@@ -149,24 +150,32 @@ export const updateGoal = async (req: AuthRequest, res: Response) => {
         return;
     } 
 
-    const { name, description, targetDate, isCompleted } = req.body;
-    const updateData: Partial<IGoal> = {};
-
-    if (name) updateData.name = name;
-    if (description) updateData.description = description;
-    if (targetDate) updateData.targetDate = targetDate;
-    if (isCompleted !== undefined) updateData.isCompleted = isCompleted;
-
-    const updatedGoal = await Goal.findOneAndUpdate(
-      { _id: req.params.id, userId },
-      { $set: updateData },
-      { new: true }
-    );
-
-    if (!updatedGoal){
-        res.status(404).json({ message: 'Goal not found or unauthorized' });
+    const { name, description, targetDate, isCompleted, targetOriginalAmount } = req.body;
+    
+    // 1. Tìm Goal trước
+    const goal = await Goal.findOne({ _id: req.params.id, userId });
+    if (!goal) {
+        res.status(404).json({ message: 'Goal not found' });
         return;
-    } 
+    }
+
+    // 2. Cập nhật các trường thông thường
+    if (name) goal.name = name;
+    if (description) goal.description = description;
+    if (targetDate) goal.targetDate = targetDate;
+    if (isCompleted !== undefined) goal.isCompleted = isCompleted;
+
+    // 3. 🔥 LOGIC MỚI: Xử lý thay đổi số tiền mục tiêu (Nếu có)
+    if (targetOriginalAmount && targetOriginalAmount !== goal.targetOriginalAmount) {
+        // Tính lại targetBaseAmount dựa trên tỷ giá lúc tạo (để nhất quán)
+        // Hoặc lấy tỷ giá mới nếu muốn (nhưng phức tạp hơn)
+        // Ở đây ta dùng tỷ giá lúc tạo (creationExchangeRate)
+        const rate = goal.creationExchangeRate || 1;
+        goal.targetOriginalAmount = targetOriginalAmount;
+        goal.targetBaseAmount = targetOriginalAmount * rate;
+    }
+
+    const updatedGoal = await goal.save();
 
     res.status(200).json(enhanceGoalResponse(updatedGoal));
   } catch (error) {
@@ -178,6 +187,9 @@ export const updateGoal = async (req: AuthRequest, res: Response) => {
  * 🔹 Controller: Xóa mục tiêu
  * ============================================================ */
 export const deleteGoal = async (req: AuthRequest, res: Response) => {
+  const session = await mongoose.startSession(); // Dùng Transaction cho an toàn
+  session.startTransaction();
+
   try {
     const userId = req.userId;
     if (!userId) {
@@ -185,23 +197,39 @@ export const deleteGoal = async (req: AuthRequest, res: Response) => {
         return;
     } 
 
-    const deletedGoal = await Goal.findOneAndDelete({ _id: req.params.id, userId });
+    // 1. Tìm và xóa Goal
+    const deletedGoal = await Goal.findOneAndDelete({ _id: req.params.id, userId }).session(session);
 
-    await Transaction.updateMany(
-        { userId: userId, goalId: deletedGoal?._id, date: undefined},
-        { $set: { goalId: null }}
-    )
-
-    if (!deletedGoal){
-        res.status(404).json({ message: 'Goal not found or unauthorized' });
+    if (!deletedGoal) {
+        await session.abortTransaction();
+        res.status(404).json({ message: 'Goal not found' });
         return;
-    } 
+    }
 
-    // TODO: Optional - cập nhật các Transaction liên kết với goal này
-    // await Transaction.updateMany({ userId, goalId: deletedGoal._id }, { $set: { goalId: null } });
+    // 2. 🔥 XỬ LÝ GIAO DỊCH LIÊN QUAN (Quan trọng)
+    
+    // A. Với các giao dịch ĐÃ thực hiện: Giữ lại nhưng ngắt liên kết (set goalId = null)
+    // Để không làm mất lịch sử chi tiêu của user
+    await Transaction.updateMany(
+        { user: userId, goalId: deletedGoal._id },
+        { $set: { goalId: null, note: `(Mục tiêu "${deletedGoal.name}" đã bị xóa)` } } // Thêm note để user biết
+    ).session(session);
 
-    res.status(200).json({ message: 'Goal deleted successfully' });
+    // B. Với các Recurring Template (Giao dịch định kỳ) đang trỏ vào Goal này:
+    // Cần HỦY hoặc CẬP NHẬT để nó không tiếp tục chạy vô định
+    await Transaction.updateMany(
+        { user: userId, goalId: deletedGoal._id, isRecurring: true, date: null }, // Template recurring
+        { $set: { isRecurring: false, goalId: null } } // Tắt recurring luôn
+    ).session(session);
+
+    await session.commitTransaction();
+    res.status(200).json({ message: 'Goal deleted and transactions unlinked successfully' });
+
   } catch (error) {
+    await session.abortTransaction();
+    console.error("Delete Goal Error:", error);
     res.status(500).json({ message: 'Error deleting goal', error });
+  } finally {
+    session.endSession();
   }
 };

@@ -1,6 +1,5 @@
 // src/controllers/budget.controller.ts
 import { Request, Response } from "express";
-import Budget from "../models/Budget";
 import Transaction from "../models/Transaction";
 import { AuthRequest } from "../middlewares/requireAuth";
 import dayjs from 'dayjs';
@@ -9,6 +8,8 @@ import mongoose from "mongoose";
 import { logAction } from "../utils/logAction";
 import { getEndOfMonth, getStartOfMonth } from "../utils/dateHelper";
 import { getExchangeRate } from "../services/exchangeRate";
+import { checkBudgetAlertForUser } from "../services/budget.service";
+import Budget from "../models/Budget";
 
 dayjs.extend(utc);
 
@@ -55,10 +56,12 @@ export const processBudgetData = async (data: any) => {
 // POST /api/budget
 export const setOrUpdateBudget = async (req: AuthRequest, res: Response) => {
   console.log(req.body);
+  console.log("[USER ID]: "+ req.userId);
   
   try {
     const { month, year, totalAmount, categories, currency } = req.body; 
     const BASE_CURRENCY = 'VND';
+    const userId = req.userId!;
 
     if (!month || !year || !totalAmount) {
       const msg = 'Vui lòng nhập tháng, năm và ngân sách tổng.';
@@ -107,16 +110,22 @@ export const setOrUpdateBudget = async (req: AuthRequest, res: Response) => {
 
     if (existing) {
       // 2. CẬP NHẬT: Lưu trữ KÉP (Dual Storage)
-      existing.originalAmount = processed.originalAmount; // Gốc (Ví dụ: 100)
-      existing.originalCurrency = processed.originalCurrency; // Gốc (Ví dụ: USD)
-      existing.totalAmount = processed.convertedTotalAmount; // Quy đổi (Ví dụ: 2,500,000 VND)
+      existing.originalAmount = processed.originalAmount;
+      existing.originalCurrency = processed.originalCurrency;
+      existing.totalAmount = processed.convertedTotalAmount; 
       
-      existing.categories = finalCategories; // Category amounts đã quy đổi
-      
-      existing.currency = BASE_CURRENCY; // Base Currency (VND)
-      existing.exchangeRate = 1; // Base Exchange Rate (1)
+      existing.categories = finalCategories; 
+      existing.currency = BASE_CURRENCY;
+      existing.exchangeRate = 1; 
+
+      // Reset alert level tổng (để check lại với mức ngân sách mới)
+      existing.alertLevel = 0;
       
       await existing.save();
+
+      // 🔥 FIX LOGIC: Gọi hàm check ngay lập tức sau khi update
+      // Để nếu ngân sách mới thấp hơn số đã chi -> Báo động ngay
+      await checkBudgetAlertForUser(userId);
 
       await logAction(req, {
         action: "updateBudget",
@@ -124,22 +133,30 @@ export const setOrUpdateBudget = async (req: AuthRequest, res: Response) => {
         description: `Cập nhật ngân sách ${month}/${year}`,
       });
 
-      res.json({ message: 'Cập nhật ngân sách thành công.', budget: existing });
+      // Lấy lại data mới nhất (bao gồm cả alertLevel vừa được check)
+      const updatedBudget = await Budget.findById(existing._id);
+
+      res.json({ message: 'Cập nhật ngân sách thành công.', updatedBudget });
       return;
     }
 
     // 3. TẠO MỚI: Lưu trữ KÉP (Dual Storage)
     const newBudget = await Budget.create({
-        user: req.userId,
+        user: userId,
         month,
         year,
         originalAmount: processed.originalAmount,
         originalCurrency: processed.originalCurrency,
-        totalAmount: processed.convertedTotalAmount, // VND
-        categories: finalCategories, // Category amounts đã quy đổi
+        totalAmount: processed.convertedTotalAmount,
+        categories: finalCategories,
         currency: BASE_CURRENCY, 
         exchangeRate: 1, 
+        alertLevel: 0
     });
+
+    // 🔥 FIX LOGIC: Gọi hàm check ngay lập tức sau khi tạo
+    // Để xử lý trường hợp "Hồi tố" (đã có giao dịch trước khi tạo budget)
+    await checkBudgetAlertForUser(userId);
 
     await logAction(req, {
       action: "createBudget",
@@ -147,7 +164,10 @@ export const setOrUpdateBudget = async (req: AuthRequest, res: Response) => {
       description: `Tạo ngân sách ${month}/${year}`,
     });
 
-    res.status(201).json({ message: 'Tạo ngân sách thành công.', budget: newBudget });
+    // Lấy lại data mới nhất
+    const finalBudget = await Budget.findById(newBudget._id);
+
+    res.status(201).json({ message: 'Tạo ngân sách thành công.', budget: finalBudget });
     return;
 
   } catch (err) {
@@ -281,55 +301,41 @@ export const getMonthlyBudget = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// [DELETE] /api/budget?month=...&year=...
+// [DELETE] /api/budget
 export const deleteBudget = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
-    // Lấy month và year từ query parameters
+    const userId = req.userId!; // Dùng ! để khẳng định tồn tại (do middleware Auth)
     const { month, year } = req.query;
 
-    // 1. Kiểm tra thông tin đầu vào
+    // 1. Validate Input
     if (!month || !year) {
-      const msg = 'Vui lòng cung cấp tháng và năm để xóa ngân sách.';
-      await logAction(req, {
-        action: "deleteBudget",
-        statusCode: 400,
-        description: msg,
-      });
-      res.status(400).json({ message: msg });
+      res.status(400).json({ message: 'Vui lòng cung cấp tháng và năm để xóa.' });
       return;
     }
 
-    // 2. Tìm và xóa ngân sách
-    // findOneAndDelete sẽ tìm, xóa, và trả về tài liệu đã bị xóa (nếu tìm thấy)
+    // 2. Xóa Ngân sách
     const deletedBudget = await Budget.findOneAndDelete({
       user: userId,
       month: Number(month),
       year: Number(year),
     });
 
-    // 3. Kiểm tra xem có tìm thấy và xóa được không
     if (!deletedBudget) {
-      const msg = `Không tìm thấy ngân sách nào cho tháng ${month}/${year} để xóa.`;
-      await logAction(req, {
-        action: "deleteBudget",
-        statusCode: 404,
-        description: msg,
-      });
-      res.status(404).json({ message: msg });
+      res.status(404).json({ message: `Không tìm thấy ngân sách tháng ${month}/${year} để xóa.` });
       return;
     }
 
-    // 4. Ghi log và trả về thành công
+    // 3. Ghi Log (Nhất quán với các hàm khác)
     await logAction(req, {
       action: "deleteBudget",
       statusCode: 200,
-      description: `Đã xóa ngân sách tháng ${month}/${year}.`,
+      description: `User xóa ngân sách tháng ${month}/${year} (Tổng: ${deletedBudget.totalAmount} VND)`,
     });
 
+    // 4. Phản hồi
     res.status(200).json({
-      message: `Xóa ngân sách tháng ${month}/${year} thành công.`,
-      deletedBudget: deletedBudget, // Trả lại tài liệu vừa xóa (tùy chọn)
+      message: `Đã xóa ngân sách tháng ${month}/${year} thành công.`,
+      deletedBudget, // Trả về để Frontend cập nhật UI nếu cần
     });
 
   } catch (err) {

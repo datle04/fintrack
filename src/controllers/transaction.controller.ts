@@ -5,7 +5,7 @@ import cloudinary from '../utils/cloudinary';
 import { v4 as uuid } from 'uuid';
 import { getLastDayOfMonth } from '../utils/getLastDayOfMonth';
 import { logAction } from '../utils/logAction';
-import { checkBudgetAlertForUser } from '../cron/checkBudgetAlertForUser';
+import { checkBudgetAlertForUser } from '../services/budget.service';
 import { getExchangeRate } from '../services/exchangeRate'; 
 import mongoose, { Types } from 'mongoose';
 import axios from "axios";
@@ -314,6 +314,7 @@ export const updateTransaction = async (req: AuthRequest, res: Response): Promis
 
     try {
         const { id } = req.params;
+        const userId = req.userId
         const {
             amount,
             type,
@@ -326,6 +327,22 @@ export const updateTransaction = async (req: AuthRequest, res: Response): Promis
             currency, // <-- Lấy trường mới từ body
             goalId,
         } = req.body;
+
+        // 1. Tìm giao dịch CŨ trước khi update (QUAN TRỌNG)
+        const oldTx = await Transaction.findOne({ _id: id, user: userId });
+        if (!oldTx) {
+            return res.status(404).json({ message: "Giao dịch không tồn tại!" });
+        }
+
+        // 2. HOÀN TÁC ẢNH HƯỞNG CỦA GIAO DỊCH CŨ (Revert Goal)
+        // Nếu giao dịch cũ là 'saving' và có goalId -> Trừ tiền đi
+        if (oldTx.type === 'expense' && oldTx.category === 'saving' && oldTx.goalId) {
+             const oldBaseAmount = oldTx.amount * (oldTx.exchangeRate || 1);
+             await Goal.findOneAndUpdate(
+                 { _id: oldTx.goalId, user: userId },
+                 { $inc: { currentBaseAmount: -oldBaseAmount } }
+             );
+        }
 
         // 1. XỬ LÝ ĐA TIỀN TỆ: Lấy tỷ giá và currency cuối cùng
         const processedData = await processTransactionData({ 
@@ -386,7 +403,7 @@ export const updateTransaction = async (req: AuthRequest, res: Response): Promis
         };
 
         const updatedTx = await Transaction.findOneAndUpdate(
-            { _id: id, user: req.userId },
+            { _id: id, user: userId },
             updateFields,
             { new: true }
         );
@@ -399,7 +416,7 @@ export const updateTransaction = async (req: AuthRequest, res: Response): Promis
         await updateGoalProgress(updatedTx); 
 
         // KIỂM TRA NGÂN SÁCH (sau khi giao dịch đã được cập nhật)
-        await checkBudgetAlertForUser(req.userId!); // <-- GỌI HÀM MỚI Ở ĐÂY
+        await checkBudgetAlertForUser(userId!); // 
 
         await logAction(req, { action: "Update Transaction", statusCode: 200, description: `Đã cập nhật giao dịch ID: ${id}`, });
 
@@ -417,20 +434,51 @@ export const updateTransaction = async (req: AuthRequest, res: Response): Promis
 export const deleteTransaction = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const tx = await Transaction.findOneAndDelete({ _id: id, user: req.userId });
+    const userId = req.userId;
+
+    // 1. Tìm giao dịch trước (KHÔNG xóa ngay)
+    const tx = await Transaction.findOne({ _id: id, user: userId });
 
     if (!tx) {
       res.status(404).json({ message: "Giao dịch không tồn tại!" });
       return;
     }
 
+    // 2. Kiểm tra và Cập nhật Goal (Nếu giao dịch này liên kết với Goal)
+    if (tx.category === 'saving' && tx.goalId) {
+        // Tính số tiền gốc (VND) cần trừ
+        const amountBaseToRemove = tx.amount * (tx.exchangeRate || 1);
+
+        console.log(`🔄 Đang hoàn lại ${amountBaseToRemove} cho Goal ${tx.goalId}`);
+
+        await Goal.findOneAndUpdate(
+            { _id: tx.goalId, userId: userId },
+            { 
+                // Dùng $inc với số âm để trừ đi
+                $inc: { currentBaseAmount: -amountBaseToRemove } 
+            }
+        );
+    }
+
+    // 3. Bây giờ mới xóa giao dịch
+    await Transaction.deleteOne({ _id: id });
+
+    // 4. 🔥 CẬP NHẬT TRẠNG THÁI NGÂN SÁCH (THÊM MỚI)
+    // Để hệ thống reset alertLevel từ 100% về 0% (ví dụ)
+    await checkBudgetAlertForUser(userId!);
+
+    // 4. Ghi log & Phản hồi
     await logAction(req, {
       action: "Delete Transaction",
       statusCode: 200,
-      description: `Đã xoá giao dịch ID: ${id}`
+      description: `Đã xoá giao dịch ID: ${id} (Goal update: ${!!tx.goalId})`
     });
 
-    res.json({ message: "Đã xóa giao dịch!" });
+    // (Tùy chọn) Gọi lại hàm check budget nếu cần, 
+    // nhưng thường xóa giao dịch saving sẽ không ảnh hưởng xấu đến budget cảnh báo.
+    
+    res.json({ message: "Đã xóa giao dịch và cập nhật mục tiêu!" });
+
   } catch (error) {
     console.log(error);
 

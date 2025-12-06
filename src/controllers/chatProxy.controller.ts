@@ -22,8 +22,8 @@ export const chatProxy = async (req: AuthRequest, res: Response) => {
     const response = await axios.post(`${chatbotUrl}/chat`, {
       message,
       history,
-      userId, // <--- Gửi kèm cái này
-      token   // <--- Gửi kèm cái này (để chatbotService dùng)
+      userId, 
+      token   // Gửi kèm để chatbotService dùng
     });
 
     res.status(200).json(response.data);
