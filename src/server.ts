@@ -36,12 +36,12 @@ global.io = io;
 io.on("connection", (socket) => {
   console.log(`🔌 New socket attempt: ${socket.id}`);
 
-  let userId: string | null = null;
+  let userId = null;
 
   // --- CÁCH 1: Lấy UserID từ Query (Cách bạn đang dùng ở Frontend) ---
   // Frontend: query: { userId: user._id }
-  if (socket.handshake.query.userId) {
-    userId = socket.handshake.query.userId as string;
+  if (socket.handshake.query && socket.handshake.query.userId) {
+    userId = socket.handshake.query.userId;
     console.log(`🔍 Auth via Query Param: ${userId}`);
   }
 
@@ -50,7 +50,7 @@ io.on("connection", (socket) => {
   if (!userId && socket.handshake.headers.cookie) {
     try {
       const cookies = cookie.parse(socket.handshake.headers.cookie);
-      const accessToken = cookies.accessToken; // Tên cookie bạn đã set lúc login
+      const accessToken = cookies.accessToken;
 
       if (accessToken) {
         const decoded: any = jwt.verify(accessToken, process.env.ACCESS_TOKEN_SECRET as string);
@@ -64,17 +64,16 @@ io.on("connection", (socket) => {
 
   // --- QUYẾT ĐỊNH CHO VÀO HAY ĐÁ RA ---
   if (userId) {
-    // 1. Join Room
+    // ===> THÀNH CÔNG
     socket.join(userId);
     console.log(`✅ User ${userId} joined room successfully.`);
 
-    // 2. Xử lý các sự kiện khác
     socket.on("session.start", () => {
-        console.log(`Session started for ${userId}`);
+       console.log(`Session started for ${userId}`);
     });
-    
-    socket.on("disconnect", () => {
-        console.log(`❌ User ${userId} disconnected`);
+
+    socket.on("disconnect", (reason) => {
+       console.log(`❌ User ${userId} disconnected. Reason: ${reason}`);
     });
 
   } else {
