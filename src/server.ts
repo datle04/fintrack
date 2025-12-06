@@ -22,7 +22,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: FRONTEND_URL,
-    // credentials: true,
+    credentials: true,
   },
   pingInterval: 60000, 
   pingTimeout: 300000, 
