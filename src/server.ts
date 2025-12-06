@@ -4,7 +4,8 @@ import dotenv from 'dotenv';
 dotenv.config();
 import http from 'http';
 import { Server } from 'socket.io';
-
+import cookie from "cookie";
+import jwt from "jsonwebtoken"
 import app from './app';
 import { setupSessionTracking } from './socket/sessionTracker';
 import { initRecurringTransactionJob } from './cron/recurringJob';
@@ -33,14 +34,58 @@ global.io = io;
 
 // Cấu hình connection
 io.on("connection", (socket) => {
-  const userId = socket.handshake.query.userId as string;
-  console.log(`⚡ New connection: ${socket.id}`);
-  if (userId) {
-    socket.join(userId); // Cho user vào "phòng" riêng
-    console.log(`✅ Socket ${socket.id} joined rooms:`, Array.from(socket.rooms));
-  } else {
-    console.log("⚠️ Connection REJECTED joining room (No userId in query)");
+  console.log(`🔌 New socket attempt: ${socket.id}`);
+
+  let userId: string | null = null;
+
+  // --- CÁCH 1: Lấy UserID từ Query (Cách bạn đang dùng ở Frontend) ---
+  // Frontend: query: { userId: user._id }
+  if (socket.handshake.query.userId) {
+    userId = socket.handshake.query.userId as string;
+    console.log(`🔍 Auth via Query Param: ${userId}`);
   }
+
+  // --- CÁCH 2: Lấy UserID từ Cookie (Bảo mật hơn - Ưu tiên cách này) ---
+  // Nếu query không có, thử đọc Cookie
+  if (!userId && socket.handshake.headers.cookie) {
+    try {
+      const cookies = cookie.parse(socket.handshake.headers.cookie);
+      const accessToken = cookies.accessToken; // Tên cookie bạn đã set lúc login
+
+      if (accessToken) {
+        const decoded: any = jwt.verify(accessToken, process.env.ACCESS_TOKEN_SECRET as string);
+        userId = decoded.id; // Hoặc decoded._id tùy vào payload bạn sign
+        console.log(`🍪 Auth via Cookie: ${userId}`);
+      }
+    } catch (err) {
+      console.log("❌ Cookie token invalid:", err);
+    }
+  }
+
+  // --- QUYẾT ĐỊNH CHO VÀO HAY ĐÁ RA ---
+  if (userId) {
+    // 1. Join Room
+    socket.join(userId);
+    console.log(`✅ User ${userId} joined room successfully.`);
+
+    // 2. Xử lý các sự kiện khác
+    socket.on("session.start", () => {
+        console.log(`Session started for ${userId}`);
+    });
+    
+    socket.on("disconnect", () => {
+        console.log(`❌ User ${userId} disconnected`);
+    });
+
+  } else {
+    // Nếu không tìm thấy UserID (cả Query và Cookie đều fail)
+    console.log("⛔ Connection REJECTED: No UserID found.");
+    socket.disconnect(); // <--- ĐÂY LÀ LÝ DO BẠN BỊ "io server disconnect"
+  }
+});
+
+server.listen(process.env.PORT || 5000, () => {
+  console.log(`Server is running...`);
 });
 // Thiết lập theo dõi phiên người dùng
 setupSessionTracking(io);
