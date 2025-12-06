@@ -84,9 +84,7 @@ io.on("connection", (socket) => {
   }
 });
 
-server.listen(process.env.PORT || 5000, () => {
-  console.log(`Server is running...`);
-});
+
 // Thiết lập theo dõi phiên người dùng
 setupSessionTracking(io);
 
@@ -102,7 +100,7 @@ const startServer = async () => {
     console.log("✅ Connected to MongoDB");
 
     server.listen(PORT, () => {
-      console.log(`🚀 Server is running at http://localhost:${PORT}`);
+      console.log(`🚀 Server is running`);
     });
   } catch (err) {
     console.error("❌ Failed to connect to MongoDB:", err);
