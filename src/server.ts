@@ -24,8 +24,8 @@ const io = new Server(server, {
     origin: FRONTEND_URL,
     credentials: true,
   },
-  pingInterval: 10000, // mỗi 5 giây gửi 1 ping
-  pingTimeout: 30000, // nếu 3 giây không có pong thì disconnect
+  pingInterval: 60000, 
+  pingTimeout: 300000, 
 });
 
 // --- QUAN TRỌNG: Gán vào global ---
