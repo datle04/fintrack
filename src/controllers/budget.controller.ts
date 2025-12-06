@@ -233,7 +233,7 @@ export const getMonthlyBudget = async (req: AuthRequest, res: Response) => {
       },
       {
         $group: {
-          _id: "$category",
+          _id: "$category", // Nhóm theo danh mục
           spentAmount: {
             $sum: {
               $multiply: ["$amount", { $ifNull: ["$exchangeRate", 1] }],
@@ -243,54 +243,56 @@ export const getMonthlyBudget = async (req: AuthRequest, res: Response) => {
       },
     ]);
 
-    // 4️⃣ Kết hợp chi tiêu thực tế với dữ liệu ngân sách
-    let totalSpent = 0;
+    // 4️⃣ Tính TỔNG CHI TIÊU THỰC TẾ (Của tất cả danh mục)
+    // Thay vì cộng trong vòng lặp, ta cộng trực tiếp từ kết quả Aggregation
+    const realTotalSpent = aggregationResult.reduce(
+      (sum, item) => sum + item.spentAmount, 
+      0
+    );
+
+    // 5️⃣ Map dữ liệu cho các danh mục ĐÃ ĐẶT NGÂN SÁCH
     const categoryStats = [];
+    
+    // Biến này chỉ để track xem trong ngân sách con đã tiêu bao nhiêu (nếu cần)
+    // let totalBudgetedSpent = 0; 
 
-    // --- BẮT ĐẦU THAY ĐỔI ---
     for (const budgetedCategory of budgetDoc.categories) {
-      // budgetedCategory BÂY GIỜ LÀ:
-      // { category: 'food', originalAmount: 100, amount: 2500000 }
-
       const resultItem = aggregationResult.find(
         (item) => item._id === budgetedCategory.category
       );
 
-      const spent = resultItem?.spentAmount || 0; // Đây là chi tiêu (VND)
-      totalSpent += spent;
+      const spent = resultItem?.spentAmount || 0;
+      // totalBudgetedSpent += spent; // (Không dùng biến này để tính tổng nữa)
 
-      // Lấy cả 2 giá trị từ ngân sách
-      const budgetedAmountVND = budgetedCategory.amount; // Tiền ngân sách (VND)
-      const originalBudgetedAmount = budgetedCategory.originalAmount; // Tiền ngân sách (Gốc)
+      const budgetedAmountVND = budgetedCategory.amount;
+      const originalBudgetedAmount = budgetedCategory.originalAmount;
 
-      // Tính % sử dụng DỰA TRÊN GIÁ TRỊ VND (VND / VND)
       const percentUsed =
         budgetedAmountVND > 0 ? (spent / budgetedAmountVND) * 100 : 0;
 
       categoryStats.push({
         category: budgetedCategory.category,
-        originalBudgetedAmount: originalBudgetedAmount, // Gốc (ví dụ: 100)
-        budgetedAmount: budgetedAmountVND, // Quy đổi (ví dụ: 2,500,000)
-        spentAmount: spent, // Chi tiêu (VND)
+        originalBudgetedAmount: originalBudgetedAmount,
+        budgetedAmount: budgetedAmountVND,
+        spentAmount: spent,
         percentUsed: percentUsed > 100 ? 100 : Number(percentUsed.toFixed(1)),
       });
     }
-    // --- KẾT THÚC THAY ĐỔI ---
 
-    // 5️⃣ Tính tổng chi tiêu, phần trăm đã sử dụng
+    // 6️⃣ Tính toán tổng quan (Sử dụng realTotalSpent)
     const totalBudget = budgetDoc.totalAmount;
     const totalPercentUsed =
-      totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0;
+      totalBudget > 0 ? (realTotalSpent / totalBudget) * 100 : 0;
 
-    // 6️⃣ Trả kết quả về client
+    // 7️⃣ Trả kết quả
     res.status(200).json({
       month: budgetDoc.month,
       year: budgetDoc.year,
       originalAmount: Number((budgetDoc.originalAmount ?? 0).toFixed(0)),
       originalCurrency: budgetDoc.originalCurrency ?? 'VND',
       totalBudget: Number(totalBudget.toFixed(0)),
-      totalSpent: Number(totalSpent.toFixed(0)),
-      totalPercentUsed: Number(totalPercentUsed.toFixed(1)),
+      totalSpent: Number(realTotalSpent.toFixed(0)), // <-- ĐÃ SỬA: Hiển thị tổng chi thực tế
+      totalPercentUsed: Number(totalPercentUsed.toFixed(1)), // <-- ĐÃ SỬA: % dựa trên tổng chi thực tế
       categoryStats,
     });
   } catch (error) {
