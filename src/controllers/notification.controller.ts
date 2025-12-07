@@ -62,3 +62,24 @@ export const deleteNotification = async (req: AuthRequest, res: Response):Promis
         res.status(500).json({ message: 'Không thể xóa thông báo', error});
     }
 }
+
+export const deleteAllNotifications = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        // Lấy userId từ token (đã được middleware xác thực gán vào req)
+        const userId = req.userId;
+
+        // Sử dụng deleteMany để xóa tất cả thông báo thuộc về user này
+        const result = await Notification.deleteMany({ user: userId });
+
+        // Trả về kết quả
+        // result.deletedCount sẽ cho biết có bao nhiêu thông báo đã bị xóa
+        res.status(200).json({ 
+            message: "Đã xóa tất cả thông báo thành công", 
+            deletedCount: result.deletedCount 
+        });
+
+    } catch (error) {
+        console.error("Error deleting all notifications:", error);
+        res.status(500).json({ message: 'Không thể xóa tất cả thông báo', error });
+    }
+}
