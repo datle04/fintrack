@@ -44,40 +44,35 @@ io.on("connection", (socket) => {
 
   let userId: string | null = null;
 
-  // 1. Thử lấy từ Query (Dành cho Chatbot FE gửi lên)
+  // 1. ƯU TIÊN: Lấy từ Query (Cái này đang chạy tốt)
   const queryUserId = socket.handshake.query.userId;
   if (queryUserId) {
      userId = Array.isArray(queryUserId) ? queryUserId[0] : queryUserId;
      console.log(`🔍 Auth via Query: ${userId}`);
   }
 
-  // 2. Thử lấy từ Cookie (Dành cho Web Browser bảo mật)
-  // Lưu ý: Cross-domain cookie trên Render thường bị chặn nếu không set SameSite: None; Secure
+  // 2. THỬ TIẾP: Lấy từ Cookie (Nếu Query không có hoặc muốn check thêm)
   if (!userId && socket.handshake.headers.cookie) {
     try {
       const cookies = cookie.parse(socket.handshake.headers.cookie);
-      // Đảm bảo key cookie khớp với cái bạn set lúc login (accessToken hay token?)
-      const token = cookies.accessToken || cookies.token; 
-
+      const token = cookies.accessToken;
       if (token) {
         const decoded: any = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET as string);
-        userId = decoded.id || decoded._id; 
+        userId = decoded.id; 
         console.log(`🍪 Auth via Cookie: ${userId}`);
       }
     } catch (err) {
-      console.log("❌ Token invalid:", (err as Error).message);
+      console.log("❌ Cookie Error:", (err as Error).message);
     }
+  } else if (!userId) {
+     // Chỉ log warning nếu chưa có userId VÀ không có cookie header
+     console.log("⚠️ Handshake missing cookie header & query param");
   }
 
-  // 3. Quyết định kết nối
+  // 3. QUYẾT ĐỊNH CUỐI CÙNG
   if (userId) {
-    socket.join(userId); // Join room theo ID User
+    socket.join(userId);
     console.log(`✅ User ${userId} joined room.`);
-
-    socket.on("disconnect", (reason) => {
-       // User thoát hoặc mất mạng
-       // console.log(`User ${userId} disconnected: ${reason}`);
-    });
   } else {
     // Nếu không xác thực được -> Từ chối
     console.log(`⛔ Rejecting socket ${socket.id}: No Auth.`);
