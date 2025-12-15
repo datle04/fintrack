@@ -57,22 +57,24 @@ io.use((socket, next) => {
 });
 
 io.on("connection", (socket) => {
-  // Biến lưu kết quả xác thực
   let userId: string | null = null;
   let authSource = "";
 
-  // ---------------------------------------------------------
-  // BƯỚC 1: Kiểm tra Query Param (Ưu tiên 1 - Dành cho Chatbot/Fallback)
-  // ---------------------------------------------------------
+  console.log('[USER ID] ------ ', userId);
+
+  // ------------------------------------------------------------------
+  // BƯỚC 1: Kiểm tra Query Param (Ưu tiên số 1 - Dành cho Chatbot/Fallback)
+  // ------------------------------------------------------------------
   const queryUserId = socket.handshake.query.userId;
   if (queryUserId) {
     userId = Array.isArray(queryUserId) ? queryUserId[0] : queryUserId;
     authSource = "Query Param";
   }
 
-  // ---------------------------------------------------------
-  // BƯỚC 2: Kiểm tra Cookie (Ưu tiên 2 - Chỉ chạy nếu BƯỚC 1 thất bại)
-  // ---------------------------------------------------------
+  // ------------------------------------------------------------------
+  // BƯỚC 2: Kiểm tra Cookie (CHỈ CHẠY NẾU BƯỚC 1 CHƯA TÌM THẤY USER)
+  // ------------------------------------------------------------------
+  // Chú ý dấu "!" ở userId (if !userId): Nghĩa là nếu chưa có userId thì mới tìm cookie
   if (!userId && socket.handshake.headers.cookie) {
     try {
       const cookies = cookie.parse(socket.handshake.headers.cookie);
@@ -83,27 +85,31 @@ io.on("connection", (socket) => {
         authSource = "Cookie";
       }
     } catch (err) {
-      console.log("⚠️ Token invalid:", (err as Error).message);
+      // Token lỗi thì bỏ qua, lát nữa xuống dưới sẽ xử lý
     }
   }
 
-  // ---------------------------------------------------------
-  // BƯỚC 3: QUYẾT ĐỊNH CUỐI CÙNG (Chỉ Disconnect ở đây)
-  // ---------------------------------------------------------
+  // ------------------------------------------------------------------
+  // BƯỚC 3: QUYẾT ĐỊNH CUỐI CÙNG (Kết nối hoặc Ngắt)
+  // ------------------------------------------------------------------
   if (userId) {
-    // ===> THÀNH CÔNG
+    // ===> TRƯỜNG HỢP THÀNH CÔNG (Query HOẶC Cookie đều được)
     socket.join(userId);
     console.log(`✅ Socket ${socket.id} CONNECTED via [${authSource}] | User: ${userId}`);
     
-    // Setup các sự kiện khác
+    // Setup các sự kiện khác ở đây
+    socket.on("session.start", () => console.log(`Session started: ${userId}`));
+
     socket.on("disconnect", (reason) => {
-       // console.log(`User ${userId} disconnected: ${reason}`);
+       // console.log(`User disconnected: ${reason}`);
     });
 
   } else {
-    // ===> THẤT BẠI (Chỉ khi CẢ 2 bước trên đều không tìm thấy userId)
-    console.log(`⛔ Socket ${socket.id} REJECTED: No credentials found.`);
-    socket.disconnect(); // <--- Chỉ ngắt kết nối ở đây!
+    // ===> TRƯỜNG HỢP THẤT BẠI TOÀN TẬP (Cả 2 bước trên đều không ra UserID)
+    console.log(`⛔ Socket ${socket.id} REJECTED: No credentials found (Missing both Query & Cookie)`);
+    
+    // 🔥 CHỈ NGẮT KẾT NỐI Ở ĐÂY 🔥
+    socket.disconnect(); 
   }
 });
 
