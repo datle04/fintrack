@@ -60,56 +60,38 @@ io.on("connection", (socket) => {
   let userId: string | null = null;
   let authSource = "";
 
-  console.log('[USER ID] ------ ', userId);
-
-  // ------------------------------------------------------------------
-  // BƯỚC 1: Kiểm tra Query Param (Ưu tiên số 1 - Dành cho Chatbot/Fallback)
-  // ------------------------------------------------------------------
+  // BƯỚC 1: Lấy từ Query (Cái này đang chạy OK)
   const queryUserId = socket.handshake.query.userId;
   if (queryUserId) {
     userId = Array.isArray(queryUserId) ? queryUserId[0] : queryUserId;
     authSource = "Query Param";
   }
 
-  // ------------------------------------------------------------------
-  // BƯỚC 2: Kiểm tra Cookie (CHỈ CHẠY NẾU BƯỚC 1 CHƯA TÌM THẤY USER)
-  // ------------------------------------------------------------------
-  // Chú ý dấu "!" ở userId (if !userId): Nghĩa là nếu chưa có userId thì mới tìm cookie
+  // BƯỚC 2: Lấy từ Cookie (Chỉ chạy nếu Bước 1 thất bại)
   if (!userId && socket.handshake.headers.cookie) {
     try {
       const cookies = cookie.parse(socket.handshake.headers.cookie);
-      const token = cookies.accessToken;
-      if (token) {
-        const decoded: any = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET as string);
+      if (cookies.accessToken) {
+        const decoded: any = jwt.verify(cookies.accessToken, process.env.ACCESS_TOKEN_SECRET as string);
         userId = decoded.id; 
         authSource = "Cookie";
       }
-    } catch (err) {
-      // Token lỗi thì bỏ qua, lát nữa xuống dưới sẽ xử lý
-    }
+    } catch (err) { /* Ignore error */ }
   }
 
-  // ------------------------------------------------------------------
-  // BƯỚC 3: QUYẾT ĐỊNH CUỐI CÙNG (Kết nối hoặc Ngắt)
-  // ------------------------------------------------------------------
+  // BƯỚC 3: QUYẾT ĐỊNH (Quan trọng nhất)
   if (userId) {
-    // ===> TRƯỜNG HỢP THÀNH CÔNG (Query HOẶC Cookie đều được)
+    // ✅ THÀNH CÔNG: Join room và KHÔNG BAO GIỜ disconnect ở đây
     socket.join(userId);
     console.log(`✅ Socket ${socket.id} CONNECTED via [${authSource}] | User: ${userId}`);
     
-    // Setup các sự kiện khác ở đây
-    socket.on("session.start", () => console.log(`Session started: ${userId}`));
-
-    socket.on("disconnect", (reason) => {
-       // console.log(`User disconnected: ${reason}`);
-    });
+    // XÓA BỎ MỌI LOGIC KIỂM TRA COOKIE Ở DƯỚI ĐOẠN NÀY!
+    // Tuyệt đối không viết: if (!cookie) socket.disconnect() ở đây.
 
   } else {
-    // ===> TRƯỜNG HỢP THẤT BẠI TOÀN TẬP (Cả 2 bước trên đều không ra UserID)
-    console.log(`⛔ Socket ${socket.id} REJECTED: No credentials found (Missing both Query & Cookie)`);
-    
-    // 🔥 CHỈ NGẮT KẾT NỐI Ở ĐÂY 🔥
-    socket.disconnect(); 
+    // ❌ THẤT BẠI: Chỉ disconnect khi KHÔNG CÓ CẢ 2
+    console.log(`⛔ Socket ${socket.id} REJECTED: No credentials.`);
+    socket.disconnect();
   }
 });
 
