@@ -57,19 +57,22 @@ io.use((socket, next) => {
 });
 
 io.on("connection", (socket) => {
-  // console.log(`🔍 [Middleware] Incoming connection: ${socket.id}`); // Log này ồn, có thể bỏ
-
+  // Biến lưu kết quả xác thực
   let userId: string | null = null;
-  let authSource = "Unknown";
+  let authSource = "";
 
-  // 1. Check Query (Ưu tiên 1)
+  // ---------------------------------------------------------
+  // BƯỚC 1: Kiểm tra Query Param (Ưu tiên 1 - Dành cho Chatbot/Fallback)
+  // ---------------------------------------------------------
   const queryUserId = socket.handshake.query.userId;
   if (queryUserId) {
-     userId = Array.isArray(queryUserId) ? queryUserId[0] : queryUserId;
-     authSource = "Query Param";
+    userId = Array.isArray(queryUserId) ? queryUserId[0] : queryUserId;
+    authSource = "Query Param";
   }
 
-  // 2. Check Cookie (Ưu tiên 2 - Nếu chưa có userId)
+  // ---------------------------------------------------------
+  // BƯỚC 2: Kiểm tra Cookie (Ưu tiên 2 - Chỉ chạy nếu BƯỚC 1 thất bại)
+  // ---------------------------------------------------------
   if (!userId && socket.handshake.headers.cookie) {
     try {
       const cookies = cookie.parse(socket.handshake.headers.cookie);
@@ -80,21 +83,27 @@ io.on("connection", (socket) => {
         authSource = "Cookie";
       }
     } catch (err) {
-      // Token lỗi thì thôi, không cần log ầm ĩ nếu lát nữa reject
+      console.log("⚠️ Token invalid:", (err as Error).message);
     }
   }
 
-  // 3. QUYẾT ĐỊNH CUỐI CÙNG (Chỉ log 1 lần kết quả)
+  // ---------------------------------------------------------
+  // BƯỚC 3: QUYẾT ĐỊNH CUỐI CÙNG (Chỉ Disconnect ở đây)
+  // ---------------------------------------------------------
   if (userId) {
+    // ===> THÀNH CÔNG
     socket.join(userId);
-    // Chỉ in log xanh khi thành công
-    console.log(`🔌 Socket ${socket.id} connected via [${authSource}] | User: ${userId}`);
+    console.log(`✅ Socket ${socket.id} CONNECTED via [${authSource}] | User: ${userId}`);
     
-    // ... setup listeners khác
+    // Setup các sự kiện khác
+    socket.on("disconnect", (reason) => {
+       // console.log(`User ${userId} disconnected: ${reason}`);
+    });
+
   } else {
-    // Chỉ in log đỏ khi thất bại toàn tập
-    console.log(`⛔ Socket ${socket.id} REJECTED: No credentials (Cookie missing & No Query)`);
-    socket.disconnect();
+    // ===> THẤT BẠI (Chỉ khi CẢ 2 bước trên đều không tìm thấy userId)
+    console.log(`⛔ Socket ${socket.id} REJECTED: No credentials found.`);
+    socket.disconnect(); // <--- Chỉ ngắt kết nối ở đây!
   }
 });
 
