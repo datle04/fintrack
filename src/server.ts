@@ -39,6 +39,23 @@ const io = new Server(server, {
 // Gán Global (Lưu ý: cần file type definition hoặc ép kiểu as any)
 global.io = io; 
 
+// Thêm Middleware Log Global để bắt mọi request
+io.engine.on("connection_error", (err) => {
+  console.log("🔥 [Engine Error]:", err.req?.url);
+  console.log("   Code:", err.code);     // Mã lỗi
+  console.log("   Msg:", err.message);   // Lý do (vd: Bad handshake method)
+  console.log("   Context:", err.context);
+});
+
+// Middleware log mọi request handshake
+io.use((socket, next) => {
+  console.log(`🔍 [Middleware] Incoming connection: ${socket.id}`);
+  console.log("   Query:", socket.handshake.query);
+  console.log("   Auth Header:", socket.handshake.headers.authorization);
+  console.log("   Cookie:", socket.handshake.headers.cookie ? "✅ Có cookie" : "❌ Không cookie");
+  next(); // Cho đi tiếp
+});
+
 io.on("connection", (socket) => {
   console.log(`🔌 New socket attempt: ${socket.id}`);
 
