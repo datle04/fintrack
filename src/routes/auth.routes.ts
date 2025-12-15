@@ -1,9 +1,10 @@
 import { Router } from 'express';
-import { login, logout, refreshToken, register } from '../controllers/auth.controller';
+import { forgotPassword, login, logout, refreshToken, register, requestChangePassword, resetPassword, verifyAndChangePassword } from '../controllers/auth.controller';
 import { logActivity } from '../middlewares/logActivity';
 import express from "express";
 import jwt from "jsonwebtoken";
 import UserModel from "../models/User";
+import { requireAuth } from '../middlewares/requireAuth';
 
 const router = Router();
 
@@ -34,5 +35,16 @@ router.post("/verify", async (req, res) => {
     return;
   }
 });
+
+// Dành cho người quên mật khẩu, người lạ
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
+
+// --- NHÓM 2: PRIVATE (Cần đăng nhập) ---
+// Dành cho người dùng đang sử dụng App muốn đổi pass
+// Bước 1: Gửi pass cũ -> Nhận OTP
+router.post("/change-password/request", requireAuth, requestChangePassword); 
+// Bước 2: Gửi OTP + Pass mới -> Đổi xong
+router.post("/change-password/verify", requireAuth, verifyAndChangePassword);
 
 export default router;

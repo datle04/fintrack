@@ -19,6 +19,7 @@ import adminRoutes from './routes/admin.routes';
 import chatHistoryRoutes from './routes/chatHistory.routes';
 import goalRoutes from './routes/goal.routes';
 import chatProxyRoutes from './routes/chatProxy.routes';
+import analyticsRoutes from './routes/analytics.routes';
 // import cronRoutes from './routes/cron.routes';
 
 const app = express();
@@ -49,6 +50,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/goals', goalRoutes);
 app.use('/api/chat-history', chatHistoryRoutes);
 app.use('/api/chat-proxy', chatProxyRoutes);
+app.use('/api/analytics', analyticsRoutes);
 // app.use('/api/cron', cronRoutes);
 
 app.get('/', (req, res) => {

@@ -8,6 +8,10 @@ import { getExchangeRate } from "../../services/exchangeRate";
 import { getEndOfDay, getStartOfDay } from "../../utils/dateHelper";
 import Notification from "../../models/Notification";
 import { createAndSendNotification } from "../../services/notification.service";
+import { recalculateGoalProgress } from "../../services/goal.service";
+import Goal from "../../models/Goal";
+import User from "../../models/User";
+import mongoose from "mongoose";
 
 // Hàm xử lý chung để lấy tỷ giá và chuẩn bị dữ liệu giao dịch
 const processTransactionData = async (data: any) => {
@@ -32,23 +36,70 @@ const processTransactionData = async (data: any) => {
 }
 
 export const getAllTransactions = async (req: AuthRequest, res: Response) => {
-  const {userId, type, category, startDate, endDate, keyword, page = 1,limit = 20,} = req.query;
+  const {
+    userId, // Dùng cho filter dropdown (nếu có)
+    type,
+    category,
+    startDate,
+    endDate,
+    keyword, // Nhận từ ô input search
+    page = 1,
+    limit = 20,
+  } = req.query;
 
   const query: any = {};
 
+  // 1. Filter cơ bản
   if (userId) query.userId = userId;
   if (type) query.type = type;
   if (category) query.category = category;
+  
   if (startDate && endDate) {
-    query.date = {
-      $gte: getStartOfDay(startDate as string), 
-      $lte: getEndOfDay(endDate as string), 
-    };
-  }
-  if (keyword) {
-    query.note = { $regex: keyword as string, $options: "i" };
+    query.date = {
+      $gte: getStartOfDay(startDate as string),
+      $lte: getEndOfDay(endDate as string),
+    };
   }
 
+  // 2. XỬ LÝ SEARCH THÔNG MINH (KEYWORD)
+  if (keyword) {
+    const searchString = keyword as string;
+    const searchRegex = { $regex: searchString, $options: "i" };
+    
+    const orConditions: any[] = [];
+
+    // 1. Check ID hợp lệ
+    if (mongoose.Types.ObjectId.isValid(searchString)) {
+        console.log("✅ Keyword là ObjectId hợp lệ:", searchString);
+        // Lưu ý: Phải ép kiểu sang ObjectId nếu dùng Mongoose raw query đôi khi cần thiết
+        orConditions.push({ user: new mongoose.Types.ObjectId(searchString) }); 
+        orConditions.push({ _id: new mongoose.Types.ObjectId(searchString) });
+    } else {
+        console.log("❌ Keyword KHÔNG phải ObjectId");
+    }
+
+    // B. Tìm theo Note (Ghi chú giao dịch)
+    orConditions.push({ note: searchRegex });
+
+    // 3. Tìm User
+    const matchingUsers = await User.find({
+      $or: [{ name: searchRegex }, { email: searchRegex }],
+    }).select("_id");
+    
+    if (matchingUsers.length > 0) {
+       console.log("🔍 Tìm thấy Users khớp tên/email:", matchingUsers.length);
+       orConditions.push({ userId: { $in: matchingUsers.map(u => u._id) } });
+    }
+
+    if (orConditions.length > 0) {
+        query.$or = orConditions;
+    }
+
+    // --- 👇 QUAN TRỌNG: IN RA QUERY CUỐI CÙNG ---
+  console.log("🚀 FINAL QUERY:", JSON.stringify(query, null, 2));
+  }
+
+  // ... (Phần sort, skip, limit giữ nguyên)
   const skip = (+page - 1) * +limit;
 
   const transactions = await Transaction.find(query)
@@ -60,11 +111,11 @@ export const getAllTransactions = async (req: AuthRequest, res: Response) => {
   const total = await Transaction.countDocuments(query);
 
   res.json({
-      data: transactions,
-      total,
-      page: +page,
-      totalPages: Math.ceil(total / +limit),
-    });
+    data: transactions,
+    total,
+    page: +page,
+    totalPages: Math.ceil(total / +limit),
+  });
 };
 
 // Admin không cần check req.userId
@@ -223,14 +274,16 @@ export const adminUpdateTransaction = async (
 export const deleteTransaction = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const { reason } = req.body; // <-- 2. Lấy lý do từ body (giống banUser)
-    const deletedTx = await Transaction.findByIdAndDelete(req.params.id);
+    const { reason } = req.body; 
+
+    // Xóa giao dịch và lấy về document vừa xóa
+    const deletedTx = await Transaction.findByIdAndDelete(id);
 
     if (!deletedTx) {
       await logAction(req, {
         action: "Xoá giao dịch thất bại",
         statusCode: 404,
-        description: `Giao dịch ID ${req.params.id} không tồn tại`,
+        description: `Giao dịch ID ${id} không tồn tại`,
         level: "warning",
       });
 
@@ -238,39 +291,43 @@ export const deleteTransaction = async (req: AuthRequest, res: Response) => {
       return;
     }
 
+    // --- Cập nhật lại goal (rollback) --- 
+    if (deletedTx.goalId) {
+      await recalculateGoalProgress(deletedTx.goalId);
+      console.log(`[Admin] Đã cập nhật lại tiến độ cho Goal ${deletedTx.goalId} sau khi xóa giao dịch.`);
+    }
+    // --------------------------------------------------------
+
     // --- 4. GỬI THÔNG BÁO CHO NGƯỜI DÙNG VỚI CHI TIẾT ---
-
-    // Format lại dữ liệu cho dễ đọc
     const txAmount = (
-      deletedTx.amount * (deletedTx.exchangeRate || 1) // Lấy giá trị đã quy đổi
+      deletedTx.amount * (deletedTx.exchangeRate || 1)
     ).toLocaleString("vi-VN", { style: "currency", currency: "VND" });
+    
     const txDate = new Date(deletedTx.date).toLocaleDateString("vi-VN");
-    const txNote = deletedTx.note
-      ? `"${deletedTx.note}"`
-      : `(không có ghi chú)`;
+    const txNote = deletedTx.note ? `"${deletedTx.note}"` : `(không có ghi chú)`;
 
-    // Tạo thông điệp rõ ràng
     const message = `Một quản trị viên đã xóa giao dịch của bạn: 
                      [${txAmount} - ${deletedTx.category} - ${txDate}]
                      (Ghi chú: ${txNote}). 
                      ${reason ? `Lý do: ${reason}` : ""}`;
 
     await createAndSendNotification(
-      deletedTx.user, // Lấy ID user từ budget đã lưu
-      "info",                 // Type
-      message,                // Message
-      "/transaction"           // Link (optional) - để user bấm vào xem
+      deletedTx.user, 
+      "info", 
+      message, 
+      "/transaction" 
     );
-    // ----------------------------------------------------
 
+    // Ghi Log
     await logAction(req, {
       action: "Xoá giao dịch",
       statusCode: 200,
-      description: `Đã xoá giao dịch ID ${id}`,
+      description: `Đã xoá giao dịch ID ${id}. Lý do: ${reason || "Không có"}`,
       level: "info",
     });
 
-    res.json({ message: "Đã xoá giao dịch" });
+    res.json({ message: "Đã xoá giao dịch và cập nhật dữ liệu liên quan" });
+
   } catch (error) {
     await logAction(req, {
       action: "Xoá giao dịch thất bại",

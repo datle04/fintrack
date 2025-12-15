@@ -7,69 +7,7 @@ import { AuthRequest } from "../../middlewares/requireAuth"; //
 import { logAction } from "../../utils/logAction"; //
 import Notification from "../../models/Notification";
 import { createAndSendNotification } from "../../services/notification.service";
-
-// --- Helper Function (Lấy từ goal.controller.ts của user) ---
-//
-// Hàm này nên được chuyển ra file service riêng (ví dụ: src/services/goalService.ts)
-// để cả admin và user controller đều có thể dùng chung.
-const updateGoalProgress = async (goal: any) => {
-  const goalId = goal._id;
-
-  // 1. Tính tổng tiền đã "gửi" vào mục tiêu (loại 'saving')
-  const savingResult = await Transaction.aggregate([
-    {
-      $match: {
-        goalId: new mongoose.Types.ObjectId(goalId),
-        type: "saving",
-      },
-    },
-    {
-      $group: {
-        _id: null,
-        totalSavings: {
-          $sum: { $multiply: ["$amount", { $ifNull: ["$exchangeRate", 1] }] },
-        },
-      },
-    },
-  ]);
-
-  // 2. Tính tổng tiền đã "rút" khỏi mục tiêu (loại 'expense')
-  const expenseResult = await Transaction.aggregate([
-    {
-      $match: {
-        goalId: new mongoose.Types.ObjectId(goalId),
-        type: "expense",
-      },
-    },
-    {
-      $group: {
-        _id: null,
-        totalExpenses: {
-          $sum: { $multiply: ["$amount", { $ifNull: ["$exchangeRate", 1] }] },
-        },
-      },
-    },
-  ]);
-
-  const totalSavings = savingResult[0]?.totalSavings || 0;
-  const totalExpenses = expenseResult[0]?.totalExpenses || 0;
-
-  // 3. Cập nhật currentAmount
-  goal.currentAmount = totalSavings - totalExpenses;
-
-  // 4. Cập nhật status
-  if (goal.currentAmount >= goal.targetAmount) {
-    goal.status = "completed";
-  } else if (goal.deadline && new Date(goal.deadline) < new Date()) {
-    goal.status = "failed";
-  } else {
-    goal.status = "in_progress";
-  }
-
-  await goal.save();
-  console.log(`[GoalService] Đã cập nhật tiến độ cho Goal ID: ${goalId}`);
-};
-// --- Kết thúc Helper Function ---
+import { recalculateGoalProgress } from "../../services/goal.service";
 
 /**
  * [MỚI] Lấy tất cả mục tiêu (có phân trang)
@@ -271,7 +209,7 @@ export const adminRecalculateGoal = async (req: AuthRequest, res: Response) => {
     }
 
     // Gọi hàm helper để tính toán lại
-    await updateGoalProgress(goal);
+    await recalculateGoalProgress(goalId);
 
     await logAction(req, {
       action: "Admin Recalculate Goal",

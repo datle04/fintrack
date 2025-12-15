@@ -18,6 +18,8 @@ export const chatProxy = async (req: AuthRequest, res: Response) => {
       chatbotUrl = `http://${chatbotUrl}`;
     }
 
+    console.log(chatbotUrl);
+
     // Gửi Message + UserId + Token sang Chatbot
     const response = await axios.post(`${chatbotUrl}/chat`, {
       message,

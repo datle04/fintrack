@@ -5,108 +5,46 @@ import Transaction from "../models/Transaction";
 import mongoose from "mongoose";
 import User from "../models/User";
 import { getConversionRate, getExchangeRate } from "../services/exchangeRate";
+import { calculateTotalStats } from "../services/statistics.service";
 
 
-// [GET] /api/dashboard
 // [GET] /api/dashboard
 export const getDashboardStats = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.userId!;
+    const { startDate, endDate, currency } = req.query;
 
-    // 1. Lấy params từ query
-    const { startDate, endDate, currency: targetCurrencyQuery } = req.query;
-
-    if (!userId) {
-      res.status(401).json({ message: "Unauthorized" });
-      return;
+    if (!startDate || !endDate) {
+        res.status(400).json({ message: "Thiếu startDate hoặc endDate" });
+        return;
     }
 
-    // 2. Tiền tệ cơ sở của CSDL (Database) LUÔN là VND
-    const APP_BASE_CURRENCY = "VND";
-
-    // 3. Lấy tiền tệ mặc định MÀ USER MUỐN XEM
-    const user = await User.findById(userId).select("currency").lean();
-    const userPreferredCurrency = user?.currency || APP_BASE_CURRENCY;
-
-    // 4. Xác định tiền tệ mục tiêu (target currency)
-    const targetCurrency =
-      (targetCurrencyQuery as string) || userPreferredCurrency;
-
-    // 5. Lấy tỷ giá quy đổi
-    let conversionRate = 1.0;
-    try {
-      conversionRate = await getConversionRate(APP_BASE_CURRENCY, targetCurrency);
-    } catch (rateError) {
-      console.error("Lỗi API tỷ giá:", rateError);
-      res.status(503).json({ message: "Lỗi dịch vụ tỷ giá hối đoái." });
-      return;
+    // 1. Xác định tiền tệ hiển thị
+    let targetCurrency = currency as string;
+    if (!targetCurrency) {
+      const user = await User.findById(userId).select("currency").lean();
+      targetCurrency = user?.currency || "VND";
     }
 
-    console.log(
-      `[Dashboard Stats] Base: ${APP_BASE_CURRENCY}, Target: ${targetCurrency}, Rate: ${conversionRate}`
-    );
+    // 2. Chuẩn hóa Date
+    const start = new Date(startDate as string);
+    start.setUTCHours(0, 0, 0, 0);
+    const end = getEndOfDay(endDate as string);
 
-    // 6. Xử lý Date
-    const gteDate = new Date(startDate as string);
-    gteDate.setUTCHours(0, 0, 0, 0);
-    const lteDate = getEndOfDay(endDate as string);
+    // 3. 🔥 GỌI SERVICE (Thay thế toàn bộ logic aggregate cũ)
+    const stats = await calculateTotalStats(userId, start, end, targetCurrency);
 
-    // 7. TÍNH TỔNG THU VÀ TỔNG CHI
-    const summary = await Transaction.aggregate([
-      {
-        $match: {
-          user: new mongoose.Types.ObjectId(userId),
-          date: { $gte: gteDate, $lte: lteDate },
-        },
-      },
-      {
-        $group: {
-          _id: "$type",
-          total: {
-            $sum: {
-              $multiply: [
-                {
-                  $multiply: [
-                    "$amount",
-                    { $ifNull: ["$exchangeRate", 1] }, // 1. Đổi về VND
-                  ],
-                },
-                conversionRate, // 2. Đổi từ VND sang Target
-              ],
-            },
-          },
-        },
-      },
-    ]);
-
-    let totalIncome = 0;
-    let totalExpense = 0;
-    summary.forEach((item) => {
-      if (item._id === "income") {
-        totalIncome = item.total;
-      } else if (item._id === "expense") {
-        totalExpense = item.total;
-      }
-    });
-
-    // --- THAY ĐỔI CHÍNH (THEO YÊU CẦU CỦA BẠN) ---
-    // 8. TÍNH SỐ DƯ (BALANCE)
-    // Xóa bỏ hoàn toàn aggregation 'totalHistorical'.
-    // Balance bây giờ là net-income (thu nhập ròng) của khoảng thời gian đã chọn.
-    const balance = totalIncome - totalExpense;
-
-    // 9. Trả về kết quả
+    // 4. Trả về (Format số liệu)
     res.status(200).json({
-      totalIncome: totalIncome.toFixed(2),
-      totalExpense: totalExpense.toFixed(2),
-      balance: balance.toFixed(2), // <-- SỬ DỤNG BALANCE MỚI
-      currency: targetCurrency,
+      totalIncome: stats.income.toFixed(2),
+      totalExpense: stats.expense.toFixed(2),
+      balance: stats.balance.toFixed(2),
+      currency: stats.currency,
     });
-    // --- KẾT THÚC THAY ĐỔI ---
-    
+
   } catch (error) {
-    console.error("❌ Lỗi khi lấy Dashboard Data:", error);
-    res.status(500).json({ message: "Không thể lấy dữ liệu Dashboard", error });
+    console.error("❌ Dashboard Error:", error);
+    res.status(500).json({ message: "Lỗi lấy dữ liệu Dashboard" });
   }
 };
 

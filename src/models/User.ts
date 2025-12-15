@@ -13,6 +13,8 @@ export interface IUser extends Document {
   address?: string;
   isBanned: { type: Boolean, default: false };
   refreshToken?: string;
+  otp: string | undefined;
+  otpExpires: Date | undefined;
 }
 
 const UserSchema = new Schema<IUser>(
@@ -31,7 +33,9 @@ const UserSchema = new Schema<IUser>(
             default: 'user'
         },
         isBanned: {type: Boolean, default: false},
-        refreshToken: { type: String }
+        refreshToken: { type: String },
+        otp: { type: String, select: false },
+        otpExpires: { type: Date, select: false }
     },
     {timestamps: true}  
 )

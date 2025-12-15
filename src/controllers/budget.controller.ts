@@ -10,6 +10,7 @@ import { getEndOfMonth, getStartOfMonth } from "../utils/dateHelper";
 import { getExchangeRate } from "../services/exchangeRate";
 import { checkBudgetAlertForUser } from "../services/budget.service";
 import Budget from "../models/Budget";
+import { getRawSpendingByCategory } from "../services/statistics.service";
 
 dayjs.extend(utc);
 
@@ -187,24 +188,17 @@ export const setOrUpdateBudget = async (req: AuthRequest, res: Response) => {
 // [GET] /api/budget
 export const getMonthlyBudget = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = req.userId!;
     const { month, year } = req.query;
 
-    if (!userId) {
-      res.status(401).json({ message: "Unauthorized" });
-      return;
-    }
+    // 1. Xác định thời gian
+    const m = Number(month);
+    const y = Number(year);
+    const start = getStartOfMonth(y, m);
+    const end = getEndOfMonth(y, m);
 
-    // 1️⃣ Xác định phạm vi ngày của tháng theo UTC
-    const startOfMonth = getStartOfMonth(Number(year), Number(month));
-    const endOfMonth = getEndOfMonth(Number(year), Number(month));
-
-    // 2️⃣ Tìm ngân sách đã thiết lập
-    const budgetDoc = await Budget.findOne({
-      user: userId,
-      month,
-      year,
-    });
+    // 2. Lấy Budget đã cài đặt
+    const budgetDoc = await Budget.findOne({ user: userId, month, year });
 
     // Nếu chưa có ngân sách → trả về mặc định
     if (!budgetDoc) {
@@ -222,77 +216,42 @@ export const getMonthlyBudget = async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    // 3️⃣ Tính chi tiêu thực tế trong tháng (quy đổi theo tỷ giá nếu có)
-    const aggregationResult = await Transaction.aggregate([
-      {
-        $match: {
-          user: new mongoose.Types.ObjectId(userId),
-          type: "expense",
-          date: { $gte: startOfMonth, $lte: endOfMonth },
-        },
-      },
-      {
-        $group: {
-          _id: "$category", // Nhóm theo danh mục
-          spentAmount: {
-            $sum: {
-              $multiply: ["$amount", { $ifNull: ["$exchangeRate", 1] }],
-            },
-          },
-        },
-      },
-    ]);
+    // 3. 🔥 GỌI SERVICE: Lấy chi tiêu thực tế (Chỉ lấy raw VND để so sánh)
+    // Không cần logic aggregate phức tạp trong controller nữa
+    const actualSpending = await getRawSpendingByCategory(userId, start, end);
 
-    // 4️⃣ Tính TỔNG CHI TIÊU THỰC TẾ (Của tất cả danh mục)
-    // Thay vì cộng trong vòng lặp, ta cộng trực tiếp từ kết quả Aggregation
-    const realTotalSpent = aggregationResult.reduce(
-      (sum, item) => sum + item.spentAmount, 
-      0
-    );
+    // 4. Tính toán Logic Business (Ghép Budget vs Actual)
+    // Tính tổng chi thực tế
+    const realTotalSpent = actualSpending.reduce((sum, item) => sum + item.spentAmount, 0);
 
-    // 5️⃣ Map dữ liệu cho các danh mục ĐÃ ĐẶT NGÂN SÁCH
-    const categoryStats = [];
-    
-    // Biến này chỉ để track xem trong ngân sách con đã tiêu bao nhiêu (nếu cần)
-    // let totalBudgetedSpent = 0; 
+    const categoryStats = budgetDoc.categories.map((budgetCat) => {
+      // Tìm số tiền đã chi cho category này trong mảng actualSpending
+      const found = actualSpending.find((s) => s._id === budgetCat.category);
+      const spent = found?.spentAmount || 0;
+      
+      const percent = budgetCat.amount > 0 ? (spent / budgetCat.amount) * 100 : 0;
 
-    for (const budgetedCategory of budgetDoc.categories) {
-      const resultItem = aggregationResult.find(
-        (item) => item._id === budgetedCategory.category
-      );
+      return {
+        category: budgetCat.category,
+        originalBudgetedAmount: budgetCat.originalAmount,
+        budgetedAmount: budgetCat.amount, // VND
+        spentAmount: spent, // VND
+        percentUsed: percent > 100 ? 100 : Number(percent.toFixed(1)),
+      };
+    });
 
-      const spent = resultItem?.spentAmount || 0;
-      // totalBudgetedSpent += spent; // (Không dùng biến này để tính tổng nữa)
-
-      const budgetedAmountVND = budgetedCategory.amount;
-      const originalBudgetedAmount = budgetedCategory.originalAmount;
-
-      const percentUsed =
-        budgetedAmountVND > 0 ? (spent / budgetedAmountVND) * 100 : 0;
-
-      categoryStats.push({
-        category: budgetedCategory.category,
-        originalBudgetedAmount: originalBudgetedAmount,
-        budgetedAmount: budgetedAmountVND,
-        spentAmount: spent,
-        percentUsed: percentUsed > 100 ? 100 : Number(percentUsed.toFixed(1)),
-      });
-    }
-
-    // 6️⃣ Tính toán tổng quan (Sử dụng realTotalSpent)
     const totalBudget = budgetDoc.totalAmount;
-    const totalPercentUsed =
-      totalBudget > 0 ? (realTotalSpent / totalBudget) * 100 : 0;
+    const totalPercent = totalBudget > 0 ? (realTotalSpent / totalBudget) * 100 : 0;
 
-    // 7️⃣ Trả kết quả
+    // 5. Trả về kết quả
     res.status(200).json({
       month: budgetDoc.month,
       year: budgetDoc.year,
-      originalAmount: Number((budgetDoc.originalAmount ?? 0).toFixed(0)),
-      originalCurrency: budgetDoc.originalCurrency ?? 'VND',
+      originalAmount: Number((budgetDoc.originalAmount || 0).toFixed(0)),
+      originalCurrency: budgetDoc.originalCurrency || "VND",
       totalBudget: Number(totalBudget.toFixed(0)),
-      totalSpent: Number(realTotalSpent.toFixed(0)), // <-- ĐÃ SỬA: Hiển thị tổng chi thực tế
-      totalPercentUsed: Number(totalPercentUsed.toFixed(1)), // <-- ĐÃ SỬA: % dựa trên tổng chi thực tế
+      totalSpent: Number(realTotalSpent.toFixed(0)),
+      totalPercentUsed: Number(totalPercent.toFixed(1)),
       categoryStats,
     });
   } catch (error) {
