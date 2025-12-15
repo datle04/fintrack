@@ -57,18 +57,19 @@ io.use((socket, next) => {
 });
 
 io.on("connection", (socket) => {
-  console.log(`🔌 New socket attempt: ${socket.id}`);
+  // console.log(`🔍 [Middleware] Incoming connection: ${socket.id}`); // Log này ồn, có thể bỏ
 
   let userId: string | null = null;
+  let authSource = "Unknown";
 
-  // 1. ƯU TIÊN: Lấy từ Query (Cái này đang chạy tốt)
+  // 1. Check Query (Ưu tiên 1)
   const queryUserId = socket.handshake.query.userId;
   if (queryUserId) {
      userId = Array.isArray(queryUserId) ? queryUserId[0] : queryUserId;
-     console.log(`🔍 Auth via Query: ${userId}`);
+     authSource = "Query Param";
   }
 
-  // 2. THỬ TIẾP: Lấy từ Cookie (Nếu Query không có hoặc muốn check thêm)
+  // 2. Check Cookie (Ưu tiên 2 - Nếu chưa có userId)
   if (!userId && socket.handshake.headers.cookie) {
     try {
       const cookies = cookie.parse(socket.handshake.headers.cookie);
@@ -76,24 +77,24 @@ io.on("connection", (socket) => {
       if (token) {
         const decoded: any = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET as string);
         userId = decoded.id; 
-        console.log(`🍪 Auth via Cookie: ${userId}`);
+        authSource = "Cookie";
       }
     } catch (err) {
-      console.log("❌ Cookie Error:", (err as Error).message);
+      // Token lỗi thì thôi, không cần log ầm ĩ nếu lát nữa reject
     }
-  } else if (!userId) {
-     // Chỉ log warning nếu chưa có userId VÀ không có cookie header
-     console.log("⚠️ Handshake missing cookie header & query param");
   }
 
-  // 3. QUYẾT ĐỊNH CUỐI CÙNG
+  // 3. QUYẾT ĐỊNH CUỐI CÙNG (Chỉ log 1 lần kết quả)
   if (userId) {
     socket.join(userId);
-    console.log(`✅ User ${userId} joined room.`);
+    // Chỉ in log xanh khi thành công
+    console.log(`🔌 Socket ${socket.id} connected via [${authSource}] | User: ${userId}`);
+    
+    // ... setup listeners khác
   } else {
-    // Nếu không xác thực được -> Từ chối
-    console.log(`⛔ Rejecting socket ${socket.id}: No Auth.`);
-    socket.disconnect(); 
+    // Chỉ in log đỏ khi thất bại toàn tập
+    console.log(`⛔ Socket ${socket.id} REJECTED: No credentials (Cookie missing & No Query)`);
+    socket.disconnect();
   }
 });
 
