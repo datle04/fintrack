@@ -5,6 +5,8 @@ import upload from "../middlewares/upload";
 import { logActivity } from "../middlewares/logActivity";
 import axios from 'axios';
 import { getCategorySuggestion } from "../utils/getCategorySuggestion";
+import validate from "../middlewares/validate";
+import { createTransactionSchema, updateTransactionSchema } from "../validations/transaction.validation";
 
 const router = Router();
 
@@ -13,13 +15,13 @@ router.use(logActivity);
 
 router.post(
   '/',
-  requireAuth,
+  validate(createTransactionSchema),
   upload.array('receiptImages', 5),  
   createTransaction
 );
 router.get('/', getTransactions);
 router.get('/by-month', getTransactionsByMonth);
-router.put('/:id', upload.array('receiptImages', 5), updateTransaction);
+router.patch('/:id', validate(updateTransactionSchema), upload.array('receiptImages', 5), updateTransaction);
 router.delete('/last-transaction', deleteLastTransaction);
 router.delete("/recurring/by-keyword", cancelRecurringByKeyword);
 router.delete('/:id', deleteTransaction);

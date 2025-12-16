@@ -5,13 +5,15 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import UserModel from "../models/User";
 import { requireAuth } from '../middlewares/requireAuth';
+import validate from '../middlewares/validate';
+import { loginSchema, registerSchema } from '../validations/auth.validation';
 
 const router = Router();
 
 router.use(logActivity);
 
-router.post("/register", register);
-router.post("/login", login);
+router.post("/register", validate(registerSchema) ,register);
+router.post("/login", validate(loginSchema), login);
 router.post('/refresh', refreshToken);
 router.post('/logout', logout);
 router.post("/verify", async (req, res) => {

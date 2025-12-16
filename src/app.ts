@@ -20,6 +20,7 @@ import chatHistoryRoutes from './routes/chatHistory.routes';
 import goalRoutes from './routes/goal.routes';
 import chatProxyRoutes from './routes/chatProxy.routes';
 import analyticsRoutes from './routes/analytics.routes';
+import { xssMiddleware } from './middlewares/xss';
 // import cronRoutes from './routes/cron.routes';
 
 const app = express();
@@ -35,6 +36,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 app.use(morgan('dev'));
 app.use('/static', express.static(path.join(__dirname, '../public')));
+app.use(xssMiddleware);
 
 // Routes
 app.use('/api/auth', authRoutes);
