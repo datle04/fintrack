@@ -36,7 +36,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 app.use(morgan('dev'));
 app.use('/static', express.static(path.join(__dirname, '../public')));
-app.use(xssMiddleware);
+// app.use(xssMiddleware);
 
 // Routes
 app.use('/api/auth', authRoutes);
