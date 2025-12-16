@@ -10,7 +10,7 @@ export const createTransactionSchema = Joi.object({
   exchangeRate: Joi.number().min(0).default(1),
   note: Joi.string().allow('').max(500),
   date: Joi.date().iso().max('now'),
-  receiptImage: Joi.array().items(Joi.string().uri()),
+  receiptImages: Joi.array().items(Joi.string().uri()),
   isRecurring: Joi.boolean().default(false),
   recurringDay: Joi.number().min(1).max(31).when('isRecurring', {
     is: true,
@@ -25,7 +25,7 @@ export const updateTransactionSchema = createTransactionSchema
   .fork(
     [
       'type', 'amount', 'category', 'currency', 'exchangeRate', 
-      'note', 'date', 'receiptImage', 'isRecurring', 'recurringDay', 'goalId'
+      'note', 'date', 'receiptImages', 'isRecurring', 'recurringDay', 'goalId'
     ],
     (schema) => schema.optional()
   )
