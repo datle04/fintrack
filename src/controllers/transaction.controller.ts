@@ -35,6 +35,10 @@ export const processTransactionData = async (data: any) => {
 // CREATE
 export const createTransaction = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
+
+      console.log("📂 Files received:", req.files); // 👈 THÊM DÒNG NÀY
+      console.log("📝 Body received:", req.body);
+
         const {
             amount,
             type,
@@ -291,6 +295,9 @@ export const getTransactionsByMonth = async (req: AuthRequest, res: Response) =>
 // UPDATE
 export const updateTransaction = async (req: AuthRequest, res: Response): Promise<any> => {
     try {
+      console.log("📂 Files received:", req.files); // 👈 THÊM DÒNG NÀY
+      console.log("📝 Body received:", req.body);
+      
         const { id } = req.params;
         const userId = req.userId;
         
