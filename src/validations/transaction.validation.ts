@@ -9,8 +9,13 @@ export const createTransactionSchema = Joi.object({
   currency: Joi.string().required().default('VND'),
   exchangeRate: Joi.number().min(0).default(1),
   note: Joi.string().allow('').max(500),
-  date: Joi.date().iso().max('now'),
-  receiptImages: Joi.array().items(Joi.string().uri()),
+  date: Joi.date().iso(),
+  
+  // 👇 SỬA DÒNG NÀY:
+  // Thay vì bắt buộc là array string (URL), ta dùng .strip()
+  // Lý do: Ảnh nằm trong req.files (Multer xử lý), Joi không cần quan tâm field này trong body.
+  receiptImages: Joi.any().strip(), 
+
   isRecurring: Joi.boolean().default(false),
   recurringDay: Joi.number().min(1).max(31).when('isRecurring', {
     is: true,
@@ -30,10 +35,14 @@ export const updateTransactionSchema = createTransactionSchema
     (schema) => schema.optional()
   )
   .keys({
-    // 👇 THÊM DÒNG NÀY: Cho phép gửi existingImages và reason
-    existingImages: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()),
-    
-    // ✅ Chấp nhận trường reason (string, cho phép rỗng)
-    reason: Joi.string().allow('').optional(), 
+    // 1. Cho phép gửi danh sách URL ảnh cũ (nếu có)
+    existingImages: Joi.alternatives().try(
+      Joi.array().items(Joi.string()), 
+      Joi.string()
+    ),
+
+    reason: Joi.string().allow('').optional(),
+
+    receiptImages: Joi.any().strip(), 
   })
   .min(1);
