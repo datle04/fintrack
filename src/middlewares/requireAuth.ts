@@ -22,9 +22,9 @@ export const requireAuth = async (
 
   // 1. Ưu tiên kiểm tra 'Authorization' header (cho chatbot service)
 
-  console.log("--- DEBUG AUTH ---");
-  console.log("Cookies nhận được:", req.cookies); 
-  console.log("Headers Authorization:", req.headers.authorization);
+  // console.log("--- DEBUG AUTH ---");
+  // console.log("Cookies nhận được:", req.cookies); 
+  // console.log("Headers Authorization:", req.headers.authorization);
   
   if (
     req.headers.authorization &&

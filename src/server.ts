@@ -79,6 +79,15 @@ io.on("connection", (socket) => {
     // ✅ THÀNH CÔNG
     socket.join(userId);
     console.log(`✅ Socket ${socket.id} ACCEPTED via [${authSource}] | User: ${userId}`);
+
+    // Server.js - Thêm vào sau khi socket.join(userId)
+    socket.join(userId);
+
+    // TEST: Tự bắn tin nhắn cho chính mình sau 5 giây
+    setTimeout(() => {
+        console.log(`🧪 Test sending event to room ${userId}`);
+        io.to(userId).emit("test_event", { message: "Hello from Server!" });
+    }, 5000);
     
     // Gửi tín hiệu báo cho client biết đã connect thành công về mặt logic
     socket.emit("connection_success", { status: "ok", userId });
