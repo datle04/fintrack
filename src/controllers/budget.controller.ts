@@ -59,6 +59,12 @@ export const setOrUpdateBudget = async (req: AuthRequest, res: Response) => {
     const userId = req.userId!;
     // 💡 ĐỔI TÊN: Dùng 'originalAmount' để khớp với Schema và tư duy "Tiền gốc"
     const { month, year, originalAmount, originalCurrency, categories } = req.body; 
+    
+    console.log("[MONTH]: ", month);
+    console.log("[YEAR]: ", year);
+    console.log("[ORIGINAL AMOUNT]: ", originalAmount);
+    console.log("[ORIGINAL CURRENCY]: ", originalCurrency);
+    console.log("[CATEGORIES]: ", categories);
 
     // 1. Xử lý đa tiền tệ (Helper của bạn)
     // Helper nên trả về cả exchangeRate đã dùng để quy đổi
@@ -75,11 +81,7 @@ export const setOrUpdateBudget = async (req: AuthRequest, res: Response) => {
 
     const finalCategories = categories?.map((reqCategory: any) => ({
       category: reqCategory.category,
-      
-      // 👇 SỬA LẠI: Đọc từ 'originalAmount'. 
-      // Mẹo: Thêm fallback 'reqCategory.amount' để đề phòng frontend cũ vẫn gửi key cũ.
       originalAmount: reqCategory.originalAmount ?? reqCategory.amount, 
-
       amount: convertedCategoriesMap.get(reqCategory.category) || 0, 
       alertLevel: 0 
     }));
