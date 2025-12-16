@@ -6,6 +6,7 @@ import { AuthRequest } from '../middlewares/requireAuth';
 import { getConversionRate } from '../services/exchangeRate';
 import Transaction from '../models/Transaction';
 import mongoose from 'mongoose';
+import { logAction } from '../utils/logAction';
 
 const APP_BASE_CURRENCY = 'VND';
 
@@ -79,17 +80,14 @@ const enhanceGoalResponse = (goal: IGoal) => {
  * ============================================================ */
 export const createGoal = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?._id;
-    if (!userId) {
-        res.status(401).json({ message: 'Unauthorized' });
-        return;
-    } 
+    const userId = req.userId; // Middleware Auth đã gán cái này, dùng trực tiếp cho gọn
 
     const { name, targetOriginalAmount, targetCurrency, targetDate, description } = req.body;
 
     let targetBaseAmount = targetOriginalAmount;
     let creationExchangeRate = 1;
 
+    // 1. Xử lý tỷ giá nếu khác tiền tệ gốc
     if (targetCurrency && targetCurrency !== APP_BASE_CURRENCY) {
       try {
         const rate = await getConversionRate(targetCurrency, APP_BASE_CURRENCY);
@@ -97,11 +95,13 @@ export const createGoal = async (req: AuthRequest, res: Response) => {
         creationExchangeRate = rate;
       } catch (err) {
         console.error('Lỗi API tỷ giá:', err);
-        res.status(503).json({ message: 'Lỗi dịch vụ tỷ giá hối đoái.' });
+        // Fallback: Nếu lỗi API, tạm thời dùng tỷ giá 1 hoặc báo lỗi
+        res.status(503).json({ message: 'Không thể lấy tỷ giá hối đoái lúc này.' });
         return;
       }
     }
 
+    // 2. Tạo Goal
     const newGoal = await Goal.create({
       userId,
       name,
@@ -112,15 +112,22 @@ export const createGoal = async (req: AuthRequest, res: Response) => {
       targetBaseAmount,
       creationExchangeRate,
       currentBaseAmount: 0,
-      isCompleted: false,
+      isCompleted: false, // Mặc định chưa xong
+    });
+
+    // 3. Ghi Log
+    await logAction(req, {
+        action: "Create Goal",
+        statusCode: 201,
+        description: `Tạo mục tiêu: ${name}`,
     });
 
     res.status(201).json(enhanceGoalResponse(newGoal));
   } catch (error) {
-    res.status(500).json({ message: 'Error creating goal', error });
+    console.error(error);
+    res.status(500).json({ message: 'Lỗi khi tạo mục tiêu', error });
   }
 };
-
 /* ============================================================
  * 🔹 Controller: Lấy danh sách mục tiêu
  * ============================================================ */
@@ -145,41 +152,92 @@ export const getGoals = async (req: AuthRequest, res: Response) => {
 export const updateGoal = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.userId;
-    if (!userId) {
-        res.status(401).json({ message: 'Unauthorized' });
-        return;
-    } 
-
-    const { name, description, targetDate, isCompleted, targetOriginalAmount } = req.body;
+    const { id } = req.params;
     
-    // 1. Tìm Goal trước
-    const goal = await Goal.findOne({ _id: req.params.id, userId });
+    // Lấy dữ liệu từ body (Joi đã validate là optional)
+    const { 
+        name, description, targetDate, isCompleted, 
+        targetOriginalAmount, targetCurrency 
+    } = req.body;
+    
+    // 1. Tìm Goal cũ
+    const goal = await Goal.findOne({ _id: id, userId });
     if (!goal) {
-        res.status(404).json({ message: 'Goal not found' });
+        res.status(404).json({ message: 'Mục tiêu không tồn tại' });
         return;
     }
 
-    // 2. Cập nhật các trường thông thường
-    if (name) goal.name = name;
-    if (description) goal.description = description;
-    if (targetDate) goal.targetDate = targetDate;
-    if (isCompleted !== undefined) goal.isCompleted = isCompleted;
+    // 2. Cập nhật thông tin cơ bản (Dùng cách check undefined cho PATCH)
+    if (name !== undefined) goal.name = name;
+    if (description !== undefined) goal.description = description;
+    if (targetDate !== undefined) goal.targetDate = targetDate;
+    
+    // Lưu ý: isCompleted sẽ được tính toán lại ở dưới, nhưng nếu user cố tình set tay thì ưu tiên
+    let manualCompletionStatus = isCompleted;
 
-    // 3. 🔥 LOGIC MỚI: Xử lý thay đổi số tiền mục tiêu (Nếu có)
-    if (targetOriginalAmount && targetOriginalAmount !== goal.targetOriginalAmount) {
-        // Tính lại targetBaseAmount dựa trên tỷ giá lúc tạo (để nhất quán)
-        // Hoặc lấy tỷ giá mới nếu muốn (nhưng phức tạp hơn)
-        // Ở đây ta dùng tỷ giá lúc tạo (creationExchangeRate)
-        const rate = goal.creationExchangeRate || 1;
-        goal.targetOriginalAmount = targetOriginalAmount;
-        goal.targetBaseAmount = targetOriginalAmount * rate;
+    // 3. 🔥 XỬ LÝ TÀI CHÍNH (Tiền & Tỷ giá)
+    // Kiểm tra xem có thay đổi gì về tiền nong không?
+    const isAmountChanged = targetOriginalAmount !== undefined && targetOriginalAmount !== goal.targetOriginalAmount;
+    const isCurrencyChanged = targetCurrency !== undefined && targetCurrency !== goal.targetCurrency;
+
+    if (isAmountChanged || isCurrencyChanged) {
+        const newAmount = targetOriginalAmount !== undefined ? targetOriginalAmount : goal.targetOriginalAmount;
+        const newCurrency = targetCurrency !== undefined ? targetCurrency : goal.targetCurrency;
+
+        // Trường hợp 1: Đổi loại tiền tệ (VND -> USD) -> BẮT BUỘC lấy tỷ giá mới
+        if (isCurrencyChanged) {
+            if (newCurrency !== APP_BASE_CURRENCY) {
+                try {
+                    const rate = await getConversionRate(newCurrency, APP_BASE_CURRENCY);
+                    goal.creationExchangeRate = rate; // Cập nhật luôn tỷ giá tham chiếu mới
+                    goal.targetBaseAmount = newAmount * rate;
+                } catch (err) {
+                    res.status(503).json({ message: "Lỗi cập nhật tỷ giá." });
+                    return;
+                }
+            } else {
+                goal.creationExchangeRate = 1;
+                goal.targetBaseAmount = newAmount;
+            }
+        } 
+        // Trường hợp 2: Chỉ đổi số tiền, giữ nguyên loại tiền -> Dùng lại tỷ giá cũ cho ổn định
+        else {
+            const rate = goal.creationExchangeRate || 1;
+            goal.targetBaseAmount = newAmount * rate;
+        }
+
+        // Cập nhật lại các trường hiển thị
+        goal.targetOriginalAmount = newAmount;
+        goal.targetCurrency = newCurrency;
+    }
+
+    // 4. 🔥 TỰ ĐỘNG CHECK TRẠNG THÁI HOÀN THÀNH
+    // Nếu user không set tay isCompleted, hệ thống tự tính
+    if (manualCompletionStatus === undefined) {
+        if (goal.currentBaseAmount >= goal.targetBaseAmount) {
+            goal.isCompleted = true;
+        } else {
+            // Nếu trước đó xong rồi, giờ sửa mục tiêu cao lên -> Mở lại goal
+            goal.isCompleted = false;
+        }
+    } else {
+        // Nếu user set tay
+        goal.isCompleted = manualCompletionStatus;
     }
 
     const updatedGoal = await goal.save();
 
+    // 5. Log hành động
+    await logAction(req, {
+        action: "Update Goal",
+        statusCode: 200,
+        description: `Cập nhật mục tiêu ID: ${id}`,
+    });
+
     res.status(200).json(enhanceGoalResponse(updatedGoal));
   } catch (error) {
-    res.status(500).json({ message: 'Error updating goal', error });
+    console.error(error);
+    res.status(500).json({ message: 'Lỗi khi cập nhật mục tiêu', error });
   }
 };
 

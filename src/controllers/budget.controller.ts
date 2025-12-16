@@ -20,6 +20,7 @@ export const processBudgetData = async (data: any) => {
   const originalCurrency = (data.currency || 'VND').toUpperCase();
   const originalTotalAmount = Number(data.totalAmount);
   const originalCategories = data.categories || [];
+  const rate = await getExchangeRate(data.currency);
   
   let exchangeRate = 1;
   let convertedTotalAmount = originalTotalAmount;
@@ -46,141 +47,98 @@ export const processBudgetData = async (data: any) => {
       // Gốc (cho hiển thị)
       originalAmount: originalTotalAmount,
       originalCurrency,
-      
-      // Đã quy đổi (cho tính toán)
+      exchangeRate: rate,
       convertedTotalAmount,
       convertedCategories,
       finalExchangeRate: exchangeRate,
   };
 }
 
-// POST /api/budget
 export const setOrUpdateBudget = async (req: AuthRequest, res: Response) => {
-  console.log(req.body);
-  console.log("[USER ID]: "+ req.userId);
-  
   try {
-    const { month, year, totalAmount, categories, currency } = req.body; 
-    const BASE_CURRENCY = 'VND';
     const userId = req.userId!;
+    // 💡 ĐỔI TÊN: Dùng 'originalAmount' để khớp với Schema và tư duy "Tiền gốc"
+    const { month, year, originalAmount, currency, categories } = req.body; 
 
-    if (!month || !year || !totalAmount) {
-      const msg = 'Vui lòng nhập tháng, năm và ngân sách tổng.';
-      await logAction(req, {
-        action: "setOrUpdateBudget",
-        statusCode: 400,
-        description: msg,
-      });
-      res.status(400).json({ message: msg });
-      return;
-    }
-
-    // 1. 💡 XỬ LÝ ĐA TIỀN TỆ & QUY ĐỔI TẤT CẢ GIÁ TRỊ VỀ VND
-    // totalAmount ở đây là giá trị gốc (USD) nếu currency là USD
+    // 1. Xử lý đa tiền tệ (Helper của bạn)
+    // Helper nên trả về cả exchangeRate đã dùng để quy đổi
     const processed = await processBudgetData({ 
         currency, 
-        totalAmount,
+        totalAmount: originalAmount, // Truyền vào helper số tiền gốc
         categories 
     });
 
-    // --- BẮT ĐẦU THAY ĐỔI ---
-    // Yêu cầu: Kết hợp `categories` (gốc) và `processed.convertedCategories` (đã quy đổi)
-    // để mỗi category item đều có originalAmount và amount (VND)
-
-    // 1. Tạo một Map để tra cứu nhanh các giá trị đã quy đổi
+    // 2. Map dữ liệu Categories (Logic của bạn giữ nguyên, chỉ làm gọn lại)
     const convertedCategoriesMap = new Map(
-      (processed.convertedCategories || []).map((cat:any) => [cat.category, cat.amount])
+      (processed.convertedCategories || []).map((cat: any) => [cat.category, cat.amount])
     );
 
-    // 2. Tạo mảng categories mới với đầy đủ thông tin
-    // `categories` ở đây là lấy từ `req.body` (chứa giá trị gốc)
-    const finalCategories = categories?.map((originalCategory: any) => {
-      // Lấy số tiền đã quy đổi từ Map, nếu không có thì mặc định là 0
-      const convertedAmount =
-        convertedCategoriesMap.get(originalCategory.category) || 0;
+    const finalCategories = categories?.map((originalCategory: any) => ({
+      category: originalCategory.category,
+      originalAmount: originalCategory.amount, // Số user nhập
+      amount: convertedCategoriesMap.get(originalCategory.category) || 0, // Số quy đổi
+      alertLevel: 0 // Reset alert level cho category
+    }));
 
-      return {
-        category: originalCategory.category,
-        originalAmount: originalCategory.amount, // Gốc (ví dụ: 100 USD)
-        amount: convertedAmount, // Đã quy đổi (ví dụ: 2,500,000 VND)
-      };
-    });
-    // --- KẾT THÚC THAY ĐỔI ---
+    // 3. CHỨC NĂNG UPSERT (Update hoặc Insert) - "Trái tim" của hàm này
+    const budget = await Budget.findOneAndUpdate(
+      // A. Điều kiện tìm kiếm
+      { user: userId, month, year },
 
-    const existing = await Budget.findOne({ user: req.userId, month, year });
+      // B. Dữ liệu để lưu (Ghi đè hoặc Tạo mới)
+      {
+        $set: {
+          originalAmount: processed.originalAmount,   // VD: 100
+          originalCurrency: processed.originalCurrency, // VD: USD
+          
+          totalAmount: processed.convertedTotalAmount, // VD: 2,500,000
+          currency: 'VND', // Base Currency cố định
+          
+          // Lưu tỷ giá thực tế thay vì hardcode số 1
+          exchangeRate: processed.exchangeRate || 1, 
 
-    if (existing) {
-      // 2. CẬP NHẬT: Lưu trữ KÉP (Dual Storage)
-      existing.originalAmount = processed.originalAmount;
-      existing.originalCurrency = processed.originalCurrency;
-      existing.totalAmount = processed.convertedTotalAmount; 
-      
-      existing.categories = finalCategories; 
-      existing.currency = BASE_CURRENCY;
-      existing.exchangeRate = 1; 
+          categories: finalCategories,
+          alertLevel: 0 // Reset cảnh báo mỗi khi sửa ngân sách
+        }
+      },
 
-      // Reset alert level tổng (để check lại với mức ngân sách mới)
-      existing.alertLevel = 0;
-      
-      await existing.save();
+      // C. Options thần thánh
+      { 
+        new: true,   // Trả về document mới nhất
+        upsert: true, // Chưa có thì tạo, có rồi thì sửa
+        setDefaultsOnInsert: true // Áp dụng default value của Schema
+      }
+    );
 
-      // 🔥 FIX LOGIC: Gọi hàm check ngay lập tức sau khi update
-      // Để nếu ngân sách mới thấp hơn số đã chi -> Báo động ngay
-      await checkBudgetAlertForUser(userId);
-
-      await logAction(req, {
-        action: "updateBudget",
-        statusCode: 200,
-        description: `Cập nhật ngân sách ${month}/${year}`,
-      });
-
-      // Lấy lại data mới nhất (bao gồm cả alertLevel vừa được check)
-      const updatedBudget = await Budget.findById(existing._id);
-
-      res.json({ message: 'Cập nhật ngân sách thành công.', updatedBudget });
-      return;
-    }
-
-    // 3. TẠO MỚI: Lưu trữ KÉP (Dual Storage)
-    const newBudget = await Budget.create({
-        user: userId,
-        month,
-        year,
-        originalAmount: processed.originalAmount,
-        originalCurrency: processed.originalCurrency,
-        totalAmount: processed.convertedTotalAmount,
-        categories: finalCategories,
-        currency: BASE_CURRENCY, 
-        exchangeRate: 1, 
-        alertLevel: 0
-    });
-
-    // 🔥 FIX LOGIC: Gọi hàm check ngay lập tức sau khi tạo
-    // Để xử lý trường hợp "Hồi tố" (đã có giao dịch trước khi tạo budget)
+    // 4. Kiểm tra cảnh báo ngay lập tức (Hồi tố hoặc check lại)
     await checkBudgetAlertForUser(userId);
 
+    // 5. Log hành động
     await logAction(req, {
-      action: "createBudget",
-      statusCode: 201,
-      description: `Tạo ngân sách ${month}/${year}`,
+      action: "setOrUpdateBudget",
+      statusCode: 200,
+      description: `Đã thiết lập ngân sách tháng ${month}/${year}`,
     });
 
-    // Lấy lại data mới nhất
-    const finalBudget = await Budget.findById(newBudget._id);
+    // Trả về kết quả (Budget lúc này đã được cập nhật alertLevel từ hàm check ở trên nếu có)
+    // Tuy nhiên hàm checkBudgetAlert thường update ngầm, nên nếu muốn hiển thị alertLevel mới nhất
+    // bạn có thể reload lại biến budget hoặc tin tưởng rằng client sẽ tự fetch lại status.
+    const finalBudget = await Budget.findById(budget._id);
 
-    res.status(201).json({ message: 'Tạo ngân sách thành công.', budget: finalBudget });
-    return;
+    res.status(200).json({ 
+        message: 'Thiết lập ngân sách thành công.', 
+        budget: finalBudget 
+    });
 
   } catch (err) {
-    console.error(err);
+    console.error("❌ Lỗi setOrUpdateBudget:", err);
     await logAction(req, {
       action: "setOrUpdateBudget",
       statusCode: 500,
-      description: 'Lỗi server khi tạo/cập nhật ngân sách.',
+      description: 'Lỗi server khi xử lý ngân sách.',
       level: "error"
     });
-    res.status(500).json({ message: 'Lỗi khi tạo/cập nhật ngân sách.', error: err });
-    return;
+    res.status(500).json({ message: 'Lỗi khi xử lý ngân sách.', error: err });
   }
 };
 

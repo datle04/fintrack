@@ -10,6 +10,12 @@ const router = Router();
 router.use(logActivity);
 
 router.get('/me', requireAuth, getUserInfo);
-router.put('/profile', requireAuth, validate(updateProfileSchema), upload.single("avatar"), updateProfile);
+router.patch( 
+  "/profile",
+  requireAuth,
+  upload.single("avatar"), 
+  validate(updateProfileSchema), 
+  updateProfile 
+);
 
 export default router;

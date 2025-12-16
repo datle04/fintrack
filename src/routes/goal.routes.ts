@@ -16,7 +16,7 @@ goalRouter.route('/')
     .get(getGoals);
 
 goalRouter.route('/:id')
-    .put(validate(updateGoalSchema), updateGoal)
+    .patch(validate(updateGoalSchema), updateGoal)
     .delete(deleteGoal);
 
 export default goalRouter;
