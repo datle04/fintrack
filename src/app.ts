@@ -54,7 +54,7 @@ app.use('/api/analytics', analyticsRoutes);
 // app.use('/api/cron', cronRoutes);
 
 app.get('/', (req, res) => {
-    res.send('FinTrack API is running');
+    res.send('FinTrack API is cooking!');
 });
 
 export default app;
