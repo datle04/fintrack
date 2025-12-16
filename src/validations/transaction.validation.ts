@@ -46,3 +46,12 @@ export const updateTransactionSchema = createTransactionSchema
     receiptImages: Joi.any().strip(), 
   })
   .min(1);
+
+export const adminUpdateTransactionSchema = updateTransactionSchema.keys({
+  // Ghi đè trường reason thành BẮT BUỘC
+  reason: Joi.string().required().min(5).messages({
+    'any.required': 'Admin bắt buộc phải nhập lý do chỉnh sửa',
+    'string.empty': 'Lý do không được để trống',
+    'string.min': 'Lý do phải có ít nhất 5 ký tự'
+  }),
+});

@@ -13,6 +13,8 @@ import * as BudgetController from '../controllers/admin/budget.controller';
 import { logActivity } from "../middlewares/logActivity";
 import upload from "../middlewares/upload";
 import Budget from "../models/Budget";
+import validate from "../middlewares/validate";
+import { adminUpdateTransactionSchema } from "../validations/transaction.validation";
 
 const router = express.Router();
 
@@ -30,7 +32,7 @@ router.patch("/users/:userId/unban", UserController.unbanUser);
 router.get("/transactions", TransactionController.getAllTransactions);
 router.delete("/transactions/:id", TransactionController.deleteTransaction);
 router.get("/transactions/stats", TransactionController.getTransactionStats);
-router.put("/transactions/:id", upload.array('receiptImages', 5) ,TransactionController.adminUpdateTransaction);
+router.patch("/transactions/:id", upload.array('receiptImages', 5), validate(adminUpdateTransactionSchema) ,TransactionController.adminUpdateTransaction);
 
 // Budget
 router.get('/budget', BudgetController.getAllBudgets);

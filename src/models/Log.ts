@@ -1,4 +1,4 @@
-import mongoose, { Document, Schema, Types } from "mongoose";
+import mongoose, { Schema, Document, Types } from "mongoose";
 
 export interface ILog extends Document {
   userId?: string;
@@ -10,6 +10,10 @@ export interface ILog extends Document {
   level: "info" | "warning" | "error" | "critical";
   user?: Types.ObjectId;
   timestamp: Date;
+  
+  // 👇 THÊM DÒNG NÀY
+  // Dùng 'any' hoặc 'Record<string, any>' để linh hoạt lưu object
+  metadata?: any; 
 }
 
 const LogSchema = new Schema<ILog>({
@@ -22,10 +26,16 @@ const LogSchema = new Schema<ILog>({
   level: { type: String, enum: ["info", "warning", "error", "critical"], default: "info" },
   user: {
     type: Schema.Types.ObjectId,
-    ref: "User", // <-- THÊM DÒNG NÀY
+    ref: "User",
     index: true,
   },
+  
+  // 👇 THÊM DÒNG NÀY
+  // Schema.Types.Mixed cho phép lưu object JSON tùy ý
+  metadata: { type: Schema.Types.Mixed }, 
+
   timestamp: { type: Date, default: Date.now, expires: '30d' }, 
 });
 
-export default mongoose.model<ILog>("Log", LogSchema);
+const Log = mongoose.model<ILog>("Log", LogSchema);
+export default Log;

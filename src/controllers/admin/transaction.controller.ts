@@ -126,48 +126,34 @@ export const adminUpdateTransaction = async (
 ) => {
   try {
     const { id } = req.params;
-    // 1. Lấy "reason" từ body
+
+    // 1. Chỉ lấy những trường Admin ĐƯỢC PHÉP sửa
     const {
-      amount,
-      type,
-      category,
       note,
-      date,
-      isRecurring,
-      recurringDay,
       existingImages,
-      currency,
-      goalId,
-      userId,
-      reason, // <-- LẤY LÝ DO
+      reason, // Bắt buộc phải có lý do
     } = req.body;
 
-    // 2. Tìm giao dịch GỐC (để so sánh)
+    // 2. Tìm giao dịch GỐC
     const originalTx = await Transaction.findById(id);
     if (!originalTx) {
       res.status(404).json({ message: "Giao dịch không tồn tại!" });
       return;
     }
-    // Lưu lại user ID gốc phòng trường hợp admin đổi chủ sở hữu
-    const originalUserId = originalTx.user;
 
-    // (Logic xử lý data và ảnh của bạn giữ nguyên)
-    const processedData = await processTransactionData({
-      currency, amount, type, category, note, date, isRecurring, recurringDay,
-      goalId: goalId || null,
-    });
-    // ... (logic xử lý keepImages và newUploadedImages giữ nguyên) ...
+    // -------------------------------------------------------------
+    // 3. XỬ LÝ ẢNH (Logic giữ nguyên vì Admin được quyền sửa bằng chứng)
+    // -------------------------------------------------------------
     let keepImages: string[] = [];
     if (existingImages) {
       keepImages = Array.isArray(existingImages) ? existingImages : [existingImages];
     }
+
     let newUploadedImages: string[] = [];
     if (req.files && Array.isArray(req.files)) {
       const uploadPromises = (req.files as Express.Multer.File[]).map(
         (file) => {
-          const base64 = `data:${
-            file.mimetype
-          };base64,${file.buffer.toString("base64")}`;
+          const base64 = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
           return cloudinary.uploader.upload(base64, {
             folder: "fintrack_receipts",
             public_id: `receipt-${uuid()}`,
@@ -177,83 +163,88 @@ export const adminUpdateTransaction = async (
       const results = await Promise.all(uploadPromises);
       newUploadedImages = results.map((result) => result.secure_url);
     }
-    const isRecurringBool = isRecurring === "true" || isRecurring === true;
+    
     const finalImages = [...keepImages, ...newUploadedImages];
 
+    // -------------------------------------------------------------
+    // 4. CHUẨN BỊ DỮ LIỆU UPDATE (LỌC BỎ CÁC TRƯỜNG TÀI CHÍNH)
+    // -------------------------------------------------------------
+    // Tuyệt đối KHÔNG đưa amount, currency, category, date, goalId vào đây
     const updateFields: any = {
-      amount: processedData.amount,
-      type: processedData.type,
-      category: processedData.category,
-      note: processedData.note,
-      date: processedData.date ? new Date(processedData.date) : undefined,
-      isRecurring: isRecurringBool,
-      recurringDay: isRecurringBool ? processedData.recurringDay : undefined,
-      receiptImage: finalImages,
-      currency: processedData.currency,
-      exchangeRate: processedData.exchangeRate,
-      goalId: processedData.goalId || null,
-      user: userId || originalUserId, // Cập nhật user nếu admin chỉ định
+      note: note, // Cho phép sửa ghi chú
+      receiptImage: finalImages, // Cho phép sửa ảnh
+      // Không update user, amount, date...
     };
 
-    // 3. So sánh thay đổi
+    // -------------------------------------------------------------
+    // 5. SO SÁNH THAY ĐỔI (CHỈ LOG NHỮNG GÌ THỰC SỰ ĐỔI)
+    // -------------------------------------------------------------
     const changes: string[] = [];
-    const originalAmountBase = originalTx.amount * (originalTx.exchangeRate || 1);
-    const newAmountBase = processedData.amount * (processedData.exchangeRate || 1);
 
-    if (originalAmountBase !== newAmountBase) {
-      changes.push(`Số tiền từ <${originalAmountBase}> thành <${newAmountBase}>`);
-    }
-    if (originalTx.category !== processedData.category) {
-      changes.push(`Danh mục từ "<${originalTx.category}>" thành "<${processedData.category}>"`);
-    }
-    if (originalTx.date !== updateFields.date) {
-      changes.push(`Ngày từ <${originalTx.date}> thành <${updateFields.date}>`);
-    }
-    if (originalTx.note !== processedData.note) {
-      changes.push(`Ghi chú (từ "<${originalTx.note || ''}>" thành "<${processedData.note || ''}>")`);
-    }
-    if (originalUserId.toString() !== updateFields.user.toString()) {
-      changes.push(`Chủ sở hữu giao dịch đã bị thay đổi (bởi admin)`);
+    if ((originalTx.note || "") !== (note || "")) {
+      changes.push(`Ghi chú (từ "${originalTx.note || ''}" thành "${note || ''}")`);
     }
 
-    // 4. Cập nhật giao dịch
-    const updatedTx = await Transaction.findByIdAndUpdate(id, updateFields, {
-      new: true,
-    });
-    // (Lưu ý: updatedTx đã là bản mới, chúng ta dùng originalTx để so sánh)
-
-    // 5. Gửi thông báo (nếu có thay đổi)
-    if (changes.length > 0) {
-      const txDesc = `[${originalAmountBase} - ${originalTx.category}]`;
-      const message = `Một quản trị viên đã cập nhật giao dịch ${txDesc} của bạn.
-                       Các thay đổi: ${changes.join(", ")}.
-                       ${reason ? `Lý do: ${reason}` : ""}`;
-
-      // 🔥 DÙNG HÀM SERVICE ĐỂ GỬI REAL-TIME
-      await createAndSendNotification(
-        originalUserId, // Lấy ID user từ budget đã lưu
-        "info",                 // Type
-        message,                // Message
-        "/transaction"           // Link (optional) - để user bấm vào xem
-      );
-
-      // Nếu admin đổi chủ sở hữu, cũng thông báo cho user MỚI
-      if (originalUserId.toString() !== updatedTx!.user.toString()) {
-        await createAndSendNotification(
-          updatedTx!.user, // Lấy ID user từ budget đã lưu
-          "info",                 // Type
-          `Một quản trị viên đã chuyển giao dịch ${txDesc} cho bạn. 
-            ${reason ? `Lý do: ${reason}` : ""}`,                // Message
-          "/transaction"           // Link (optional) - để user bấm vào xem
-        );
-      }
+    // So sánh ảnh đơn giản qua độ dài mảng (hoặc logic phức tạp hơn nếu cần)
+    if (originalTx.receiptImage?.length !== finalImages.length) {
+      changes.push(`Ảnh hóa đơn (thay đổi số lượng từ ${originalTx.receiptImage?.length} thành ${finalImages.length})`);
+    } else {
+        // Nếu độ dài bằng nhau, kiểm tra xem nội dung có khác không (sơ bộ)
+        const oldImagesJson = JSON.stringify(originalTx.receiptImage.sort());
+        const newImagesJson = JSON.stringify(finalImages.sort());
+        if (oldImagesJson !== newImagesJson) {
+             changes.push(`Cập nhật ảnh chứng từ`);
+        }
     }
 
-    // 6. Ghi Log
+    // Nếu không có gì thay đổi thì báo luôn (Tiết kiệm db write)
+    if (changes.length === 0) {
+        res.status(200).json({ message: "Không có thay đổi nào được thực hiện." });
+        return;
+    }
+
+    // -------------------------------------------------------------
+    // 6. CẬP NHẬT DATABASE
+    // -------------------------------------------------------------
+    const updatedTx = await Transaction.findByIdAndUpdate(
+        id, 
+        { $set: updateFields }, 
+        { new: true }
+    );
+
+    // -------------------------------------------------------------
+    // 7. GỬI THÔNG BÁO CHO USER
+    // -------------------------------------------------------------
+    // Tạo tiêu đề ngắn gọn để user nhận diện giao dịch
+    const txDesc = `[${originalTx.amount.toLocaleString()} ${originalTx.currency}]`; 
+    
+    const message = `Admin đã cập nhật thông tin bổ sung (Ghi chú/Ảnh) cho giao dịch ${txDesc}.
+                     Thay đổi: ${changes.join(", ")}.
+                     ${reason ? `Lý do: ${reason}` : ""}`;
+
+    await createAndSendNotification(
+      originalTx.user, 
+      "info", 
+      message, 
+      "/transaction"
+    );
+
+    // -------------------------------------------------------------
+    // 8. GHI LOG HỆ THỐNG
+    // -------------------------------------------------------------
     await logAction(req, {
       action: "Admin Update Transaction",
       statusCode: 200,
-      description: `Admin đã cập nhật giao dịch ID: ${id}. Lý do: ${reason || "Không có"}. Thay đổi: ${changes.join(", ") || "Không có"}`,
+      description: `Admin cập nhật giao dịch ID: ${id}. Lý do: ${reason}`,
+      
+      // 👇 Metadata giúp bạn lưu chi tiết kỹ thuật mà không làm rối description
+      metadata: {
+        targetId: id,               // ID của giao dịch bị sửa
+        reason: reason,             // Lý do
+        changes: changes,           // Mảng các thay đổi ["Ghi chú từ A -> B"]
+        originalData: originalTx,   // (Tùy chọn) Lưu luôn bản gốc để backup nếu cần
+        adminIp: req.ip             // IP của admin thực hiện
+      }
     });
 
     res.json(updatedTx);
@@ -263,13 +254,12 @@ export const adminUpdateTransaction = async (
     await logAction(req, {
       action: "Admin Update Transaction",
       statusCode: 500,
-      description: "Lỗi khi admin cập nhật giao dịch",
+      description: "Lỗi hệ thống khi admin cập nhật",
       level: "error",
     });
     res.status(500).json({ message: "Không thể cập nhật!", error });
   }
 };
-
 
 export const deleteTransaction = async (req: AuthRequest, res: Response) => {
   try {
