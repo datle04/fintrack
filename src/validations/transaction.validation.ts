@@ -7,7 +7,7 @@ export const createTransactionSchema = Joi.object({
   amount: Joi.number().greater(0).required(),
   category: Joi.string().required(),
   currency: Joi.string().required().default('VND'),
-  // exchangeRate: Joi.number().min(0).default(1),
+  exchangeRate: Joi.number().min(0).default(1),
   note: Joi.string().allow('').max(500),
   date: Joi.date().iso().max('now'),
   receiptImage: Joi.array().items(Joi.string().uri()),
