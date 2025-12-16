@@ -20,37 +20,31 @@ export const processBudgetData = async (data: any) => {
   const originalCurrency = (data.currency || 'VND').toUpperCase();
   const originalTotalAmount = Number(data.totalAmount);
   const originalCategories = data.categories || [];
-  const rate = await getExchangeRate(data.currency);
-  
-  let exchangeRate = 1;
-  let convertedTotalAmount = originalTotalAmount;
 
-  // 1. LẤY TỶ GIÁ (Nếu cần)
+  // 1. Chỉ gọi 1 lần duy nhất
+  let exchangeRate = 1;
   if (originalCurrency !== 'VND') {
-    // Assume getExchangeRate is defined and available
-    exchangeRate = await getExchangeRate(originalCurrency); 
-    convertedTotalAmount = originalTotalAmount * exchangeRate;
+      exchangeRate = await getExchangeRate(originalCurrency);
   }
+  
+  const convertedTotalAmount = originalTotalAmount * exchangeRate;
 
   // 2. CHUYỂN ĐỔI CATEGORY AMOUNTS
   const convertedCategories = originalCategories.map((cat: any) => {
     return {
         category: cat.category,
-        // Quy đổi số tiền con về VND (Base Currency)
-        // LƯU Ý: Nếu categories[].amount là USD, nó sẽ được nhân với exchangeRate (USD->VND)
+        // Lúc này cat.amount đã được Controller chuẩn bị sẵn
         amount: Number(cat.amount) * exchangeRate, 
         alertLevel: cat.alertLevel || 0,
     };
   });
 
   return {
-      // Gốc (cho hiển thị)
       originalAmount: originalTotalAmount,
       originalCurrency,
-      exchangeRate: rate,
       convertedTotalAmount,
       convertedCategories,
-      finalExchangeRate: exchangeRate,
+      exchangeRate, // Trả về tỷ giá đã dùng
   };
 }
 
@@ -66,12 +60,18 @@ export const setOrUpdateBudget = async (req: AuthRequest, res: Response) => {
     console.log("[ORIGINAL CURRENCY]: ", originalCurrency);
     console.log("[CATEGORIES]: ", categories);
 
+    const categoriesForHelper = categories.map((cat: any) => ({
+        ...cat,
+        // Ưu tiên lấy originalAmount gán vào amount cho Helper tính toán
+        amount: cat.originalAmount ?? cat.amount 
+    }));
+
     // 1. Xử lý đa tiền tệ (Helper của bạn)
     // Helper nên trả về cả exchangeRate đã dùng để quy đổi
     const processed = await processBudgetData({ 
         currency: originalCurrency, 
         totalAmount: originalAmount, // Truyền vào helper số tiền gốc
-        categories 
+        categories: categoriesForHelper 
     });
 
     // 2. Map dữ liệu Categories
@@ -81,7 +81,9 @@ export const setOrUpdateBudget = async (req: AuthRequest, res: Response) => {
 
     const finalCategories = categories?.map((reqCategory: any) => ({
       category: reqCategory.category,
+      // Lưu số gốc (User nhập)
       originalAmount: reqCategory.originalAmount ?? reqCategory.amount, 
+      // Lưu số quy đổi (Lấy từ kết quả Helper)
       amount: convertedCategoriesMap.get(reqCategory.category) || 0, 
       alertLevel: 0 
     }));
