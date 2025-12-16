@@ -22,12 +22,18 @@ export const createTransactionSchema = Joi.object({
 
 // 2. Schema Cập nhật (Update) - Tự động tạo từ Create
 export const updateTransactionSchema = createTransactionSchema
-  // Liệt kê tất cả các key bạn cho phép sửa
   .fork(
     [
       'type', 'amount', 'category', 'currency', 'exchangeRate', 
       'note', 'date', 'receiptImage', 'isRecurring', 'recurringDay', 'goalId'
     ],
-    (schema) => schema.optional() // Biến tất cả thành optional
+    (schema) => schema.optional()
   )
-  .min(1); // Chặn gửi body rỗng: {}
+  .keys({
+    // 👇 THÊM DÒNG NÀY: Cho phép gửi existingImages và reason
+    existingImages: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()),
+    
+    // ✅ Chấp nhận trường reason (string, cho phép rỗng)
+    reason: Joi.string().allow('').optional(), 
+  })
+  .min(1);

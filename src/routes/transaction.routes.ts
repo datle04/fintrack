@@ -15,13 +15,13 @@ router.use(logActivity);
 
 router.post(
   '/',
-  validate(createTransactionSchema),
   upload.array('receiptImages', 5),  
+  validate(createTransactionSchema),
   createTransaction
 );
 router.get('/', getTransactions);
 router.get('/by-month', getTransactionsByMonth);
-router.patch('/:id', validate(updateTransactionSchema), upload.array('receiptImages', 5), updateTransaction);
+router.patch('/:id', upload.array('receiptImages', 5),  validate(updateTransactionSchema), updateTransaction);
 router.delete('/last-transaction', deleteLastTransaction);
 router.delete("/recurring/by-keyword", cancelRecurringByKeyword);
 router.delete('/:id', deleteTransaction);
