@@ -58,38 +58,40 @@ io.use((socket, next) => {
 });
 
 io.on("connection", (socket) => {
-  let userId: string | null = null;
+  let userId = null;
   let authSource = "";
 
-  // BƯỚC 1: Lấy từ Query (Cái này đang chạy OK)
-  const queryUserId = socket.handshake.query.userId;
-  if (queryUserId) {
-    userId = Array.isArray(queryUserId) ? queryUserId[0] : queryUserId;
+  console.log(`🔍 [Handshake] ID: ${socket.id} | Transport: ${socket.conn.transport.name}`);
+
+  // CÁCH 1: Lấy từ Auth Object (Chuẩn mới - Ưu tiên)
+  if (socket.handshake.auth && socket.handshake.auth.userId) {
+    userId = socket.handshake.auth.userId;
+    authSource = "Auth Object";
+  } 
+  // CÁCH 2: Fallback lấy từ Query (Cho code cũ nếu còn sót)
+  else if (socket.handshake.query && socket.handshake.query.userId) {
+    userId = socket.handshake.query.userId;
     authSource = "Query Param";
   }
 
-  // BƯỚC 2: Lấy từ Cookie (Chỉ chạy nếu Bước 1 thất bại)
-  if (!userId && socket.handshake.headers.cookie) {
-    try {
-      const cookies = cookie.parse(socket.handshake.headers.cookie);
-      if (cookies.accessToken) {
-        const decoded: any = jwt.verify(cookies.accessToken, process.env.ACCESS_TOKEN_SECRET as string);
-        userId = decoded.id; 
-        authSource = "Cookie";
-      }
-    } catch (err) { /* Ignore error */ }
-  }
-
-  // BƯỚC 3: QUYẾT ĐỊNH (Quan trọng nhất)
+  // --- LOGIC KIỂM TRA ---
   if (userId) {
+    // ✅ THÀNH CÔNG
     socket.join(userId);
-    console.log(`✅ Socket ${socket.id} CONNECTED via [${authSource}] | User: ${userId}`);
+    console.log(`✅ Socket ${socket.id} ACCEPTED via [${authSource}] | User: ${userId}`);
+    
+    // Gửi tín hiệu báo cho client biết đã connect thành công về mặt logic
+    socket.emit("connection_success", { status: "ok", userId });
 
   } else {
-    // ❌ THẤT BẠI: Chỉ disconnect khi KHÔNG CÓ CẢ 2
-    console.log(`⛔ Socket ${socket.id} REJECTED: No credentials.`);
-    socket.disconnect();
+    // ❌ THẤT BẠI
+    console.error(`⛔ Socket ${socket.id} REJECTED. Auth:`, socket.handshake.auth, "Query:", socket.handshake.query);
+    
+    // Ngắt kết nối
+    socket.disconnect(); 
   }
+
+  // ... Các sự kiện on khác ...
 });
 
 // Setup modules khác
