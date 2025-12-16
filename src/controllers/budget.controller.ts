@@ -63,7 +63,7 @@ export const setOrUpdateBudget = async (req: AuthRequest, res: Response) => {
     // 1. Xử lý đa tiền tệ (Helper của bạn)
     // Helper nên trả về cả exchangeRate đã dùng để quy đổi
     const processed = await processBudgetData({ 
-        originalCurrency, 
+        currency: originalCurrency, 
         totalAmount: originalAmount, // Truyền vào helper số tiền gốc
         categories 
     });
