@@ -21,7 +21,8 @@ const server = http.createServer(app);
 // Cấu hình CORS cho Socket
 const allowedOrigins = [
   process.env.FRONTEND_URL,      // Prod: https://my-app.onrender.com
-  "http://localhost:5173",       // Dev: Vite default     // Dev: React default
+  "http://localhost:5173",       // Dev: Vite default     // Dev: React 
+  "https://fintrack-frontend-pg3r.onrender.com"
 ].filter(Boolean) as string[];   // Lọc bỏ undefined nếu chưa set env
 
 // Khởi tạo Socket.io
@@ -81,12 +82,8 @@ io.on("connection", (socket) => {
 
   // BƯỚC 3: QUYẾT ĐỊNH (Quan trọng nhất)
   if (userId) {
-    // ✅ THÀNH CÔNG: Join room và KHÔNG BAO GIỜ disconnect ở đây
     socket.join(userId);
     console.log(`✅ Socket ${socket.id} CONNECTED via [${authSource}] | User: ${userId}`);
-    
-    // XÓA BỎ MỌI LOGIC KIỂM TRA COOKIE Ở DƯỚI ĐOẠN NÀY!
-    // Tuyệt đối không viết: if (!cookie) socket.disconnect() ở đây.
 
   } else {
     // ❌ THẤT BẠI: Chỉ disconnect khi KHÔNG CÓ CẢ 2
