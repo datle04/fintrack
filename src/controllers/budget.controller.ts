@@ -68,16 +68,20 @@ export const setOrUpdateBudget = async (req: AuthRequest, res: Response) => {
         categories 
     });
 
-    // 2. Map dữ liệu Categories (Logic của bạn giữ nguyên, chỉ làm gọn lại)
+    // 2. Map dữ liệu Categories
     const convertedCategoriesMap = new Map(
       (processed.convertedCategories || []).map((cat: any) => [cat.category, cat.amount])
     );
 
-    const finalCategories = categories?.map((originalCategory: any) => ({
-      category: originalCategory.category,
-      originalAmount: originalCategory.amount, // Số user nhập
-      amount: convertedCategoriesMap.get(originalCategory.category) || 0, // Số quy đổi
-      alertLevel: 0 // Reset alert level cho category
+    const finalCategories = categories?.map((reqCategory: any) => ({
+      category: reqCategory.category,
+      
+      // 👇 SỬA LẠI: Đọc từ 'originalAmount'. 
+      // Mẹo: Thêm fallback 'reqCategory.amount' để đề phòng frontend cũ vẫn gửi key cũ.
+      originalAmount: reqCategory.originalAmount ?? reqCategory.amount, 
+
+      amount: convertedCategoriesMap.get(reqCategory.category) || 0, 
+      alertLevel: 0 
     }));
 
     // 3. CHỨC NĂNG UPSERT (Update hoặc Insert) - "Trái tim" của hàm này
