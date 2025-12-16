@@ -93,7 +93,6 @@ export const createTransaction = async (req: AuthRequest, res: Response): Promis
                 isRecurring: true,
                 recurringDay,
                 recurringId,
-                // <-- THÊM THÔNG TIN TIỀN TỆ
                 currency: finalCurrency,
                 exchangeRate,
                 goalId: goalId || null
@@ -120,7 +119,7 @@ export const createTransaction = async (req: AuthRequest, res: Response): Promis
 
             await logAction(req, { action: "Created Recurring Transaction", statusCode: 201, description: `Tạo giao dịch định kỳ ngày ${recurringDay}` });
 
-            res.status(201).json({ message: "Đã tạo giao dịch định kỳ và bản đầu tiên", template: templateTx, firstTransaction: firstTx });
+            res.status(201).json({ message: "Đã tạo giao dịch định kỳ và bản đầu tiên", template: templateTx, transaction: firstTx });
             return;
         }
 
@@ -139,7 +138,6 @@ export const createTransaction = async (req: AuthRequest, res: Response): Promis
             receiptImage: receiptImages,
             isRecurring: false,
             date,
-            // <-- THÊM THÔNG TIN TIỀN TỆ
             currency: finalCurrency,
             exchangeRate,
             goalId: goalId || null,
