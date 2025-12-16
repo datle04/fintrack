@@ -58,12 +58,12 @@ export const setOrUpdateBudget = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.userId!;
     // 💡 ĐỔI TÊN: Dùng 'originalAmount' để khớp với Schema và tư duy "Tiền gốc"
-    const { month, year, originalAmount, currency, categories } = req.body; 
+    const { month, year, originalAmount, originalCurrency, categories } = req.body; 
 
     // 1. Xử lý đa tiền tệ (Helper của bạn)
     // Helper nên trả về cả exchangeRate đã dùng để quy đổi
     const processed = await processBudgetData({ 
-        currency, 
+        originalCurrency, 
         totalAmount: originalAmount, // Truyền vào helper số tiền gốc
         categories 
     });
