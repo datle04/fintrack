@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import e, { Router } from 'express';
 import { forgotPassword, login, logout, refreshToken, register, requestChangePassword, resetPassword, verifyAndChangePassword } from '../controllers/auth.controller';
 import { logActivity } from '../middlewares/logActivity';
 import express from "express";
@@ -7,13 +7,14 @@ import UserModel from "../models/User";
 import { requireAuth } from '../middlewares/requireAuth';
 import validate from '../middlewares/validate';
 import { loginSchema, registerSchema } from '../validations/auth.validation';
+import { emailLimiter, loginLimiter } from '../middlewares/rateLimiter';
 
 const router = Router();
 
 router.use(logActivity);
 
 router.post("/register", validate(registerSchema) ,register);
-router.post("/login", validate(loginSchema), login);
+router.post("/login", loginLimiter, validate(loginSchema), login);
 router.post('/refresh', refreshToken);
 router.post('/logout', logout);
 router.post("/verify", async (req, res) => {
@@ -39,7 +40,7 @@ router.post("/verify", async (req, res) => {
 });
 
 // Dành cho người quên mật khẩu, người lạ
-router.post("/forgot-password", forgotPassword);
+router.post("/forgot-password", emailLimiter, forgotPassword);
 router.post("/reset-password", resetPassword);
 
 // --- NHÓM 2: PRIVATE (Cần đăng nhập) ---

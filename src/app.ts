@@ -21,13 +21,14 @@ import goalRoutes from './routes/goal.routes';
 import chatProxyRoutes from './routes/chatProxy.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import { xssMiddleware } from './middlewares/xss';
+import { generalLimiter } from './middlewares/rateLimiter';
 // import cronRoutes from './routes/cron.routes';
 
 const app = express();
 // ======production==========
 app.set('trust proxy', 1);
 //===========================
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+const FRONTEND_URL = process.env.FRONTEND_URL;
 
 // Middleware
 app.use(helmet());
@@ -36,6 +37,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 app.use(morgan('dev'));
 app.use('/static', express.static(path.join(__dirname, '../public')));
+app.use(generalLimiter);
 // app.use(xssMiddleware);
 
 // Routes

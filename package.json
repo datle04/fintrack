@@ -30,7 +30,7 @@
     "dotenv": "^16.5.0",
     "ejs": "^3.1.10",
     "express": "^5.1.0",
-    "express-rate-limit": "^8.1.0",
+    "express-rate-limit": "^8.2.1",
     "express-response-formatter": "^2.0.2",
     "franc": "^6.2.0",
     "helmet": "^8.1.0",
