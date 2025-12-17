@@ -55,133 +55,112 @@ export const getAllUsers = async (req: AuthRequest, res: Response) => {
 
 export const updateUserInfo = async (req: AuthRequest, res: Response) => {
   const { userId } = req.params;
-  // 1. Lấy các trường admin được phép sửa và lý do
+  
+  // 1. CHỈ LẤY ROLE VÀ REASON
+  // Các trường name, email, currency... sẽ bị lờ đi hoàn toàn
   const {
-    name,
-    email,
     role,
-    address,
-    dob,
-    phone,
-    currency,
-    reason, // <-- LẤY LÝ DO
+    reason, // <-- Bắt buộc
   } = req.body;
 
   try {
-    // 2. Tìm user GỐC
+    // 2. Validate Input
+    if (!reason || reason.trim().length === 0) {
+        res.status(400).json({ message: "Admin bắt buộc phải nhập lý do khi thay đổi quyền hạn người dùng." });
+        return;
+    }
+
+    // 3. Tìm user GỐC
     const user = await User.findById(userId);
     if (!user) {
       res.status(404).json({ message: "Không tìm thấy người dùng" });
       return;
     }
 
-    // 3. So sánh và tạo danh sách thay đổi
+    // 4. So sánh thay đổi (Chỉ so sánh Role)
     const changes: string[] = [];
-    const oldEmail = user.email; // Lưu lại email cũ phòng trường hợp bị đổi
-    let emailChanged = false;
-    let roleChanged = false;
+    const oldRole = user.role;
 
-    if (name && name !== user.name) {
-      changes.push(`Tên từ "${user.name}" thành "${name}"`);
-      user.name = name;
-    }
-    if (email && email !== user.email) {
-      changes.push(`Email từ "${user.email}" thành "${email}"`);
-      user.email = email;
-      emailChanged = true;
-    }
     if (role && role !== user.role) {
+      // Validate role hợp lệ nếu cần (ví dụ: chỉ cho phép 'user', 'admin')
+      const validRoles = ['user', 'admin']; 
+      if (!validRoles.includes(role)) {
+          res.status(400).json({ message: "Vai trò không hợp lệ." });
+          return;
+      }
+
       changes.push(`Vai trò từ "${user.role}" thành "${role}"`);
       user.role = role;
-      roleChanged = true;
-    }
-    if (address && address !== user.address) {
-      changes.push(`Địa chỉ đã được cập nhật`);
-      user.address = address;
-    }
-    if (dob && dob !== user.dob){
-      changes.push(`Ngày sinh đã được cập nhật`);
-      user.dob = dob;
-    }
-    if (phone && phone !== user.phone) {
-      changes.push(`Số điện thoại đã được cập nhật`);
-      user.phone = phone;
-    }
-    if (currency && currency !== user.currency) {
-      changes.push(`Tiền tệ mặc định từ "${user.currency}" thành "${currency}"`);
-      user.currency = currency;
     }
 
     // Nếu không có gì thay đổi
     if (changes.length === 0) {
-      res.status(400).json({ message: "Không có thông tin nào được thay đổi" });
+      res.status(400).json({ 
+          message: "Không có thay đổi nào về quyền hạn. Admin không được phép sửa thông tin cá nhân khác." 
+      });
       return;
     }
 
-    // 4. Lưu thay đổi
-    // (Lưu ý: Dùng .save() sẽ an toàn hơn, nhưng nếu bạn không hash pass... thì findByIdAndUpdate cũng tạm ổn)
-    // Code của bạn dùng findByIdAndUpdate:
-    // const updatedUser = await User.findByIdAndUpdate(userId, req.body, { new: true });
-    // Code an toàn hơn (dùng save):
+    // 5. Lưu thay đổi
     const updatedUser = await user.save();
 
-
-    // 5. Gửi thông báo
-    const message = `Một quản trị viên đã cập nhật hồ sơ của bạn.
-                     Các thay đổi: ${changes.join(", ")}.
-                     ${reason ? `Lý do: ${reason}` : ""}`;
+    // 6. Gửi thông báo & Email (Bảo mật)
+    const message = `Quản trị viên đã thay đổi quyền hạn tài khoản của bạn.
+                     Chi tiết: ${changes.join(", ")}.
+                     Lý do: ${reason}`;
                      
-    // 5a. Gửi thông báo trong ứng dụng
+    // 6a. Thông báo trong app
     await createAndSendNotification(
-      userId,         // Lấy ID user từ budget đã lưu
-      "info",                 // Type
-      message,                // Message
-      "/setting"           // Link (optional) - để user bấm vào xem
+      userId,        
+      "info",      // Dùng warning vì đổi role là hành động nhạy cảm
+      message,                
+      "/setting"           
     );
 
-    // 5b. Gửi email nếu thay đổi email hoặc vai trò
-    if (emailChanged || roleChanged) {
-        const emailSubject = emailChanged ? "[FinTrack] Email tài khoản của bạn đã bị thay đổi" : "[FinTrack] Vai trò tài khoản của bạn đã bị thay đổi";
-        
-        sendEmail({
-            to: oldEmail, // Gửi đến email cũ
-            subject: emailSubject,
-            html: `<div style="font-family: Arial, sans-serif; line-height: 1.6;">
-                    <img src="cid:logo" alt="FinTrack Logo" style="width: 150px; height: auto;" />
-                    <p>Chào bạn,</p>
-                    <p>Một quản trị viên đã thực hiện các thay đổi quan trọng đối với tài khoản của bạn (<b>${oldEmail}</b>):</p>
-                    <p><b>Chi tiết thay đổi:</b> ${changes.join(", ")}</p>
-                    ${reason ? `<p><b>Lý do:</b> ${reason}</p>` : ""}
-                    <p>Nếu bạn không yêu cầu thay đổi này, vui lòng liên hệ hỗ trợ ngay lập tức.</p>
-                    <p>Trân trọng,<br/>Đội ngũ FinTrack</p>
-                  </div>`
-        });
-        // Nếu email bị đổi, cũng gửi thông báo đến email mới
-        if(emailChanged && oldEmail !== user.email) {
-             sendEmail({
-                to: user.email, // Gửi đến email mới
-                subject: "[FinTrack] Xác nhận email mới",
-                html: `<p>Đây là thông báo xác nhận email mới của bạn cho tài khoản FinTrack.</p>`
-             });
-        }
-    }
-
-    // 6. Ghi Log
-    await logAction(req, {
-      action: "Admin Update User",
-      statusCode: 200,
-      description: `Admin đã cập nhật user ID ${userId}. Lý do: ${reason || "Không có"}. Thay đổi: ${changes.join(", ")}`,
-      level: "info",
+    // 6b. Gửi email (Rất quan trọng khi đổi Role)
+    sendEmail({
+        to: user.email, 
+        subject: "[FinTrack] Cảnh báo: Thay đổi quyền hạn tài khoản",
+        html: `<div style="font-family: Arial, sans-serif; line-height: 1.6;">
+                <h3 style="color: #d9534f;">Thay đổi quyền truy cập</h3>
+                <p>Xin chào <b>${user.name}</b>,</p>
+                <p>Tài khoản của bạn vừa được cập nhật quyền hạn bởi quản trị viên.</p>
+                <ul>
+                    <li><b>Thay đổi:</b> ${changes.join(", ")}</li>
+                    <li><b>Lý do:</b> ${reason}</li>
+                </ul>
+                <p>Nếu bạn cho rằng đây là sự nhầm lẫn, vui lòng liên hệ bộ phận hỗ trợ.</p>
+              </div>`
     });
 
-    res.json(updatedUser);
+    // 7. Ghi Log Audit (Kèm Snapshot)
+    await logAction(req, {
+      action: "Admin Update User Role",
+      statusCode: 200,
+      description: `Admin cập nhật Role user ID ${userId}. Lý do: ${reason}`,
+      level: "warning",
+      metadata: {
+        targetUserId: userId,
+        oldRole: oldRole,
+        newRole: role,
+        reason: reason,
+        adminIp: req.ip
+      }
+    });
+
+    // Trả về user (nhưng nên lọc bỏ password nếu có)
+    const userResponse = updatedUser.toObject();
+
+    res.json(userResponse);
+
   } catch (error) {
     console.error("❌ Lỗi khi admin cập nhật user:", error);
     await logAction(req, {
-      action: "Admin Update User",
+      action: "Admin Update User Role",
       statusCode: 500,
-      description: `Lỗi khi cập nhật user ID: ${req.params.userId}`,
+      description: `Lỗi khi cập nhật role user ID: ${userId}`,
       level: "error",
+      metadata: { error }
     });
     res.status(500).json({ message: "Lỗi server", error });
   }

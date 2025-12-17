@@ -305,7 +305,7 @@ export const adminDeleteTransaction = async (req: AuthRequest, res: Response) =>
 
     await createAndSendNotification(
       txToDelete.user, 
-      "warning", 
+      "info", 
       message, 
       "/transaction" 
     );

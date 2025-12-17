@@ -207,7 +207,7 @@ export const adminDeleteGoal = async (req: AuthRequest, res: Response) => {
                      
     await createAndSendNotification(
       goalToDelete.userId, 
-      "warning", 
+      "info", 
       message, 
       "/goal"
     );
