@@ -14,6 +14,31 @@ const transporter = nodemailer.createTransport({
   }
 });
 
+// 2. Hàm gửi email CHUNG (Dùng cho thông báo Cấm/Xóa...)
+interface EmailOptions {
+  to: string;
+  subject: string;
+  html: string;
+}
+
+export const sendEmail = async ({ to, subject, html }: EmailOptions) => {
+  try {
+    const mailOptions = {
+      from: `"FinTrack Admin" <ldat0909@gmail.com>`, // 👈 QUAN TRỌNG: Email Gmail thật
+      to,
+      subject,
+      html,
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log(`📧 [General] Đã gửi email tới ${to}`);
+    return true;
+  } catch (error) {
+    console.error(`❌ [General] Lỗi gửi email tới ${to}:`, error);
+    return false;
+  }
+};
+
 export const sendOTPEmail = async (email: string, otp: string) => {
   try {
     const mailOptions = {

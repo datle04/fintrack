@@ -13,7 +13,7 @@ import ChatHistory from "../../models/ChatHistory";
 import path from "path";
 import fs from 'fs';
 import { AuthRequest } from "../../middlewares/requireAuth";
-import { sendEmail } from "../../utils/sendEmail";
+import { sendEmail } from "../../services/email.service";
 import { createAndSendNotification } from "../../services/notification.service";
 
 export const getAllUsers = async (req: AuthRequest, res: Response) => {
@@ -119,19 +119,20 @@ export const updateUserInfo = async (req: AuthRequest, res: Response) => {
 
     // 6b. Gửi email (Rất quan trọng khi đổi Role)
     sendEmail({
-        to: user.email, 
-        subject: "[FinTrack] Cảnh báo: Thay đổi quyền hạn tài khoản",
-        html: `<div style="font-family: Arial, sans-serif; line-height: 1.6;">
-                <h3 style="color: #d9534f;">Thay đổi quyền truy cập</h3>
-                <p>Xin chào <b>${user.name}</b>,</p>
-                <p>Tài khoản của bạn vừa được cập nhật quyền hạn bởi quản trị viên.</p>
-                <ul>
-                    <li><b>Thay đổi:</b> ${changes.join(", ")}</li>
-                    <li><b>Lý do:</b> ${reason}</li>
-                </ul>
-                <p>Nếu bạn cho rằng đây là sự nhầm lẫn, vui lòng liên hệ bộ phận hỗ trợ.</p>
-              </div>`
-    });
+      to: user.email,
+      subject: "[FinTrack] Tài khoản của bạn đã bị khóa",
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 15px; border: 1px solid #e0e0e0; border-radius: 5px;">
+            <h3 style="color: #d32f2f;">Thông báo khóa tài khoản</h3>
+            <p>Chào <strong>${user.name}</strong>,</p>
+            <p>Chúng tôi rất tiếc phải thông báo rằng tài khoản FinTrack của bạn đã bị khóa bởi quản trị viên.</p>
+            ${reason ? `<p style="background-color: #ffebee; padding: 10px; border-radius: 4px;"><b>Lý do:</b> ${reason}</p>` : ''}
+            <p>Nếu bạn tin rằng đây là một sự nhầm lẫn, vui lòng liên hệ hỗ trợ.</p>
+            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+            <p style="color: #666; font-size: 12px;">Trân trọng,<br/>Đội ngũ FinTrack</p>
+        </div>
+      `,
+    }).catch(err => console.error(`Lỗi gửi mail cấm:`, err));
 
     // 7. Ghi Log Audit (Kèm Snapshot)
     await logAction(req, {
@@ -198,7 +199,6 @@ export const banUser = async (req: AuthRequest, res: Response) => {
         <p>Trân trọng,<br/>Đội ngũ FinTrack</p>
       `,
     }).catch(err => console.error(`[EmailService] Gửi email cấm user ${user._id} thất bại:`, err));
-    // ---------------------------------
 
     await logAction(req, {
       action: "BAN_USER",
