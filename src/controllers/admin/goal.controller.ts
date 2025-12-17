@@ -9,10 +9,7 @@ import Notification from "../../models/Notification";
 import { createAndSendNotification } from "../../services/notification.service";
 import { recalculateGoalProgress } from "../../services/goal.service";
 
-/**
- * [MỚI] Lấy tất cả mục tiêu (có phân trang)
- * GET /admin/goals
- */
+
 export const getAllGoals = async (req: AuthRequest, res: Response) => {
   const page = parseInt(req.query.page as string) || 1;
   const limit = parseInt(req.query.limit as string) || 20;
@@ -20,7 +17,7 @@ export const getAllGoals = async (req: AuthRequest, res: Response) => {
 
   try {
     const goals = await Goal.find()
-      .populate("userId", "name email") // Liên kết đến model User
+      .populate("userId", "name email") 
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -39,10 +36,6 @@ export const getAllGoals = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * [MỚI] Lấy mục tiêu theo ID
- * GET /admin/goals/:goalId
- */
 export const getGoalById = async (req: AuthRequest, res: Response) => {
   const { goalId } = req.params;
 
@@ -61,143 +54,195 @@ export const getGoalById = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * [MỚI] Admin cập nhật mục tiêu
- * PUT /admin/goals/:goalId
- */
+
 export const adminUpdateGoal = async (req: AuthRequest, res: Response) => {
   const { goalId } = req.params;
-  // 1. Lấy "reason" và các trường dữ liệu từ body
-  const { reason, ...updateData } = req.body;
+
+  const { 
+    name, 
+    description, 
+    reason 
+  } = req.body;
 
   try {
-    // 2. Tìm mục tiêu GỐC để so sánh
+    // Validate Reason
+    if (!reason || reason.trim().length === 0) {
+        res.status(400).json({ message: "Admin bắt buộc phải nhập lý do chỉnh sửa." });
+        return;
+    }
+
     const originalGoal = await Goal.findById(goalId);
     if (!originalGoal) {
       res.status(404).json({ message: "Không tìm thấy mục tiêu" });
       return;
     }
 
-    // 3. Cập nhật mục tiêu
-    const updatedGoal = await Goal.findByIdAndUpdate(goalId, updateData, {
-      new: true,
-      runValidators: true,
-    });
-
-    if (!updatedGoal) {
-      // (Trường hợp hiếm gặp)
-      res.status(404).json({ message: "Không tìm thấy mục tiêu sau khi cập nhật" });
-      return;
-    }
-
-    // 4. So sánh và tạo thông điệp thay đổi
     const changes: string[] = [];
-    if (originalGoal.name !== updatedGoal.name) {
-      changes.push(`Tên từ "${originalGoal.name}" thành "${updatedGoal.name}"`);
+    
+    if (name && originalGoal.name !== name) {
+      changes.push(`Tên mục tiêu (từ "${originalGoal.name}" thành "${name}")`);
     }
-    if (originalGoal.targetOriginalAmount !== updatedGoal.targetOriginalAmount) { //
-      changes.push(`Số tiền mục tiêu từ ${originalGoal.targetOriginalAmount} thành ${updatedGoal.targetOriginalAmount}`);
-    }
-    if (originalGoal.currentBaseAmount !== updatedGoal.currentBaseAmount) { //
-      changes.push(`Số tiền hiện tại từ ${originalGoal.currentBaseAmount} thành ${updatedGoal.currentBaseAmount} (sửa thủ công)`);
-    }
-    if (originalGoal.targetDate !== updatedGoal.targetDate) { //
-      changes.push(`Hạn chót từ ${originalGoal.targetDate} thành ${updatedGoal.targetDate}`);
+    
+    const oldDesc = originalGoal.description || "";
+    const newDesc = description || "";
+    if (oldDesc !== newDesc) {
+      changes.push(`Mô tả (từ "${oldDesc}" thành "${newDesc}")`);
     }
 
-    // 5. Gửi thông báo (nếu có thay đổi)
-    if (changes.length > 0) {
-      const message = `Một quản trị viên đã cập nhật mục tiêu "<b>${originalGoal.name}</b>" của bạn.
-                       <br/><b>Các thay đổi:</b> ${changes.join(", ")}.
-                       ${reason ? `<br/><b>Lý do:</b> ${reason}` : ""}`;
-                       
-      await Notification.create({
-        user: updatedGoal.userId, //
-        type: "info",
-        message: message,
-      });
+    if (changes.length === 0) {
+        res.status(200).json({ message: "Không có thay đổi nào về thông tin chung." });
+        return;
     }
 
-    // 6. Ghi Log
+    const updatedGoal = await Goal.findByIdAndUpdate(
+        goalId, 
+        { 
+            $set: { 
+                name: name, 
+                description: description 
+            } 
+        }, 
+        { new: true, runValidators: true }
+    );
+
+    const message = `Một quản trị viên đã cập nhật thông tin mục tiêu "${originalGoal.name}".
+                     Thay đổi: ${changes.join(", ")}.
+                     Lý do: ${reason}`;
+                     
+    await createAndSendNotification(
+      originalGoal.userId, 
+      "info",
+      message,
+      "/goal"
+    );
+
     await logAction(req, {
       action: "Admin Update Goal",
       statusCode: 200,
-      description: `Admin đã cập nhật mục tiêu ID: ${goalId}. Lý do: ${reason || "Không có"}. Thay đổi: ${changes.join(", ") || "Không có"}`,
+      description: `Admin cập nhật metadata mục tiêu ID: ${goalId}. Lý do: ${reason}`,
+      metadata: {
+        targetId: goalId,
+        reason: reason,
+        changes: changes,
+        // Lưu lại snapshot dữ liệu gốc quan trọng để đối chứng
+        snapshot: {
+            name: originalGoal.name,
+            amount: originalGoal.targetOriginalAmount,
+            status: originalGoal.status
+        }
+      }
     });
 
     res.json(updatedGoal);
+
   } catch (error) {
     console.error("❌ Lỗi khi admin cập nhật mục tiêu:", error);
     await logAction(req, {
       action: "Admin Update Goal",
       statusCode: 500,
-      description: `Lỗi khi cập nhật mục tiêu ID: ${goalId}. Lý do: ${reason || "Không có"}`,
+      description: "Lỗi server khi cập nhật mục tiêu",
       level: "error",
+      metadata: { error }
     });
     res.status(500).json({ message: "Lỗi server", error });
   }
 };
 
-/**
- * [MỚI] Admin xóa mục tiêu
- * DELETE /admin/goals/:goalId
- */
 export const adminDeleteGoal = async (req: AuthRequest, res: Response) => {
   const { goalId } = req.params;
-  const { reason } = req.body; // <-- 1. LẤY LÝ DO TỪ BODY
+  const { reason } = req.body; 
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
   try {
-    // 2. Tìm và xóa mục tiêu
-    const deletedGoal = await Goal.findByIdAndDelete(goalId);
+    if (!reason || reason.trim().length === 0) {
+        await session.abortTransaction();
+        res.status(400).json({ message: "Admin bắt buộc phải nhập lý do khi xóa." });
+        return;
+    }
 
-    if (!deletedGoal) {
+    const goalToDelete = await Goal.findById(goalId).session(session);
+
+    if (!goalToDelete) {
+      await session.abortTransaction();
       res.status(404).json({ message: "Không tìm thấy mục tiêu" });
       return;
     }
 
-    // --- 3. GỬI THÔNG BÁO CHO NGƯỜI DÙNG ---
-    const message = `Một quản trị viên đã xóa mục tiêu của bạn: "${deletedGoal.name}".
-                     ${reason ? `Lý do: ${reason}` : ""}`;
-                     
-    // 🔥 DÙNG HÀM SERVICE ĐỂ GỬI REAL-TIME
-    await createAndSendNotification(
-      deletedGoal.userId, // Lấy ID user từ budget đã lưu
-      "info",                 // Type
-      message,                // Message
-      "/goal"               // Link (optional) - để user bấm vào xem
-    );
-    // ------------------------------------
+    await Goal.findByIdAndDelete(goalId).session(session);
 
-    // 4. Gỡ bỏ goalId khỏi tất cả các giao dịch liên quan (Giữ nguyên)
+    // XỬ LÝ SIDE-EFFECTS (Bảo vệ dữ liệu Transaction)
+
     await Transaction.updateMany(
-      { goalId: deletedGoal._id },
-      { $unset: { goalId: "" } } // Xóa trường goalId
+        { goalId: goalId },
+        { 
+            $set: { 
+                goalId: null, 
+            } 
+        }
+    ).session(session);
+
+    // Với các Giao dịch định kỳ (Recurring Templates):
+    // Phải TẮT chúng đi, nếu không nó sẽ tiếp tục tạo giao dịch rác không có đích đến
+    await Transaction.updateMany(
+        { goalId: goalId, isRecurring: true, date: null }, // Template
+        { 
+            $set: { 
+                isRecurring: false, 
+                goalId: null,
+                note: `(Đã tắt định kỳ do Admin xóa mục tiêu. Lý do: ${reason})`
+            } 
+        }
+    ).session(session);
+
+    await session.commitTransaction();
+
+    // 5. GỬI THÔNG BÁO (Sau khi commit thành công)
+    const message = `Admin đã xóa mục tiêu: "${goalToDelete.name}".
+                     Lý do: ${reason}.
+                     Các giao dịch liên quan đã được ngắt kết nối khỏi mục tiêu này.`;
+                     
+    await createAndSendNotification(
+      goalToDelete.userId, 
+      "warning", 
+      message, 
+      "/goal"
     );
 
-    // 5. Ghi Log (Cập nhật lý do)
+    // GHI LOG (Kèm Snapshot để khôi phục)
     await logAction(req, {
       action: "Admin Delete Goal",
       statusCode: 200,
-      description: `Admin đã xóa mục tiêu ID: ${goalId} (Tên: ${deletedGoal.name}) của user ${deletedGoal.userId}. Lý do: ${reason || "Không có"}`,
+      description: `Admin xóa mục tiêu ID: ${goalId}. Lý do: ${reason}`,
+      level: "warning",
+      metadata: {
+        deletedGoal: goalToDelete.toObject(), 
+        reason: reason,
+        sideEffects: "Unlinked transactions & Stopped recurring"
+      }
     });
 
-    res.json({ message: "Đã xóa mục tiêu thành công" });
+    res.json({ message: "Đã xóa mục tiêu và xử lý dữ liệu liên quan." });
+
   } catch (error) {
+    await session.abortTransaction();
     console.error("❌ Lỗi khi admin xóa mục tiêu:", error);
+    
     await logAction(req, {
       action: "Admin Delete Goal",
       statusCode: 500,
-      description: `Lỗi khi xóa mục tiêu ID: ${goalId}. Lý do: ${reason || "Không có"}`,
+      description: `Lỗi server khi xóa mục tiêu ID ${goalId}`,
       level: "error",
+      metadata: { error }
     });
+    
     res.status(500).json({ message: "Lỗi server", error });
+  } finally {
+    session.endSession();
   }
 };
 
-/**
- * [MỚI] Admin tính toán lại tiến độ mục tiêu
- * POST /admin/goals/:goalId/recalculate
- */
 export const adminRecalculateGoal = async (req: AuthRequest, res: Response) => {
   const { goalId } = req.params;
 

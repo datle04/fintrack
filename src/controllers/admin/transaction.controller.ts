@@ -12,6 +12,7 @@ import { recalculateGoalProgress } from "../../services/goal.service";
 import Goal from "../../models/Goal";
 import User from "../../models/User";
 import mongoose from "mongoose";
+import { checkBudgetAlertForUser } from "../../services/budget.service";
 
 // Hàm xử lý chung để lấy tỷ giá và chuẩn bị dữ liệu giao dịch
 const processTransactionData = async (data: any) => {
@@ -261,72 +262,81 @@ export const adminUpdateTransaction = async (
   }
 };
 
-export const deleteTransaction = async (req: AuthRequest, res: Response) => {
+export const adminDeleteTransaction = async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+  const { reason } = req.body; 
+
   try {
-    const { id } = req.params;
-    const { reason } = req.body; 
-
-    // Xóa giao dịch và lấy về document vừa xóa
-    const deletedTx = await Transaction.findByIdAndDelete(id);
-
-    if (!deletedTx) {
-      await logAction(req, {
-        action: "Xoá giao dịch thất bại",
-        statusCode: 404,
-        description: `Giao dịch ID ${id} không tồn tại`,
-        level: "warning",
-      });
-
-      res.status(404).json({ message: "Không tìm thấy giao dịch" });
-      return;
+    if (!reason || reason.trim().length === 0) {
+       res.status(400).json({ message: "Admin bắt buộc phải nhập lý do khi xóa giao dịch." });
+       return;
     }
 
-    // --- Cập nhật lại goal (rollback) --- 
-    if (deletedTx.goalId) {
-      await recalculateGoalProgress(deletedTx.goalId);
-      console.log(`[Admin] Đã cập nhật lại tiến độ cho Goal ${deletedTx.goalId} sau khi xóa giao dịch.`);
-    }
-    // --------------------------------------------------------
+    const txToDelete = await Transaction.findById(id);
 
-    // --- 4. GỬI THÔNG BÁO CHO NGƯỜI DÙNG VỚI CHI TIẾT ---
+    if (!txToDelete) {
+       res.status(404).json({ message: "Giao dịch không tồn tại." });
+       return;
+    }
+
+    // 3. THỰC HIỆN XÓA
+    await Transaction.findByIdAndDelete(id);
+
+    // XỬ LÝ SIDE-EFFECTS (Đảm bảo tính toàn vẹn)
+    
+    // Cập nhật lại Goal (Rollback tiến độ)
+    if (txToDelete.goalId) {
+      await recalculateGoalProgress(txToDelete.goalId);
+      console.log(`[Admin] Đã cập nhật lại tiến độ Goal ${txToDelete.goalId} sau khi xóa Tx.`);
+    }
+
+    // Cập nhật lại Budget Alert
+    if (txToDelete.user) {
+        await checkBudgetAlertForUser(txToDelete.user.toString());
+    }
     const txAmount = (
-      deletedTx.amount * (deletedTx.exchangeRate || 1)
+      txToDelete.amount * (txToDelete.exchangeRate || 1)
     ).toLocaleString("vi-VN", { style: "currency", currency: "VND" });
     
-    const txDate = new Date(deletedTx.date).toLocaleDateString("vi-VN");
-    const txNote = deletedTx.note ? `"${deletedTx.note}"` : `(không có ghi chú)`;
+    const txDate = new Date(txToDelete.date).toLocaleDateString("vi-VN");
 
-    const message = `Một quản trị viên đã xóa giao dịch của bạn: 
-                     [${txAmount} - ${deletedTx.category} - ${txDate}]
-                     (Ghi chú: ${txNote}). 
+    const message = `Admin đã xóa giao dịch: [${txAmount} - ${txToDelete.category} - ${txDate}].
                      ${reason ? `Lý do: ${reason}` : ""}`;
 
     await createAndSendNotification(
-      deletedTx.user, 
-      "info", 
+      txToDelete.user, 
+      "warning", 
       message, 
       "/transaction" 
     );
 
-    // Ghi Log
+    // Ghi log kèm snapshot
     await logAction(req, {
-      action: "Xoá giao dịch",
+      action: "Admin Delete Transaction",
       statusCode: 200,
-      description: `Đã xoá giao dịch ID ${id}. Lý do: ${reason || "Không có"}`,
-      level: "info",
+      description: `Admin xóa giao dịch ID ${id}. Lý do: ${reason}`,
+      level: "critical", 
+      // Lưu lại bản sao lưu
+      metadata: {
+        deletedTransaction: txToDelete.toObject(), 
+        reason: reason,
+        deletedByAdmin: true
+      }
     });
 
-    res.json({ message: "Đã xoá giao dịch và cập nhật dữ liệu liên quan" });
+    res.json({ message: "Đã xoá giao dịch và cập nhật dữ liệu liên quan." });
 
   } catch (error) {
+    console.error("❌ Lỗi xoá giao dịch:", error);
+    
     await logAction(req, {
-      action: "Xoá giao dịch thất bại",
+      action: "Admin Delete Transaction",
       statusCode: 500,
-      description: `Lỗi server khi xoá giao dịch ID ${req.params.id}`,
+      description: `Lỗi server khi xoá giao dịch ID ${id}`,
       level: "error",
+      metadata: { error: error }
     });
 
-    console.error("❌ Lỗi xoá giao dịch:", error);
     res.status(500).json({ message: "Lỗi server" });
   }
 };

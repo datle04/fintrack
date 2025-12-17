@@ -15,6 +15,7 @@ import upload from "../middlewares/upload";
 import Budget from "../models/Budget";
 import validate from "../middlewares/validate";
 import { adminUpdateTransactionSchema } from "../validations/transaction.validation";
+import { adminUpdateGoalSchema } from "../validations/goal.validation";
 
 const router = express.Router();
 
@@ -30,14 +31,14 @@ router.patch("/users/:userId/unban", UserController.unbanUser);
 
 // Transaction management
 router.get("/transactions", TransactionController.getAllTransactions);
-router.delete("/transactions/:id", TransactionController.deleteTransaction);
+router.delete("/transactions/:id", TransactionController.adminDeleteTransaction);
 router.get("/transactions/stats", TransactionController.getTransactionStats);
 router.patch("/transactions/:id", upload.array('receiptImages', 5), validate(adminUpdateTransactionSchema) ,TransactionController.adminUpdateTransaction);
 
 // Budget
 router.get('/budget', BudgetController.getAllBudgets);
 router.get('/budget/:budgetId', BudgetController.getBudgetById);
-router.put('/budget/:budgetId', BudgetController.adminUpdateBudget);
+// router.put('/budget/:budgetId', BudgetController.adminUpdateBudget);
 router.delete('/budget/:budgetId', BudgetController.adminDeleteBudget);
 
 // Dashboard
@@ -66,7 +67,7 @@ router.get("/session/weekly-duration", SessionController.getWeeklyDurationAllUse
 // Goal
 router.get("/goals", GoalController.getAllGoals);
 router.get("/goals/:goalId", GoalController.getGoalById);
-router.put("/goals/:goalId", GoalController.adminUpdateGoal);
+router.patch("/goals/:goalId", validate(adminUpdateGoalSchema), GoalController.adminUpdateGoal);
 router.delete("/goals/:goalId", GoalController.adminDeleteGoal);
 router.post("/goals/:goalId/recalculate", GoalController.adminRecalculateGoal);
 

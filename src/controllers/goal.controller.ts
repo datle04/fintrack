@@ -80,9 +80,9 @@ const enhanceGoalResponse = (goal: IGoal) => {
  * ============================================================ */
 export const createGoal = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.userId; // Middleware Auth đã gán cái này, dùng trực tiếp cho gọn
-
-    const { name, targetOriginalAmount, targetCurrency, targetDate, description } = req.body;
+    const userId = req.userId;
+    // 👇 Thêm 'status' vào destructuring
+    const { name, targetOriginalAmount, targetCurrency, targetDate, description, status } = req.body;
 
     let targetBaseAmount = targetOriginalAmount;
     let creationExchangeRate = 1;
@@ -101,7 +101,7 @@ export const createGoal = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // 2. Tạo Goal
+   // 2. Tạo Goal
     const newGoal = await Goal.create({
       userId,
       name,
@@ -112,7 +112,8 @@ export const createGoal = async (req: AuthRequest, res: Response) => {
       targetBaseAmount,
       creationExchangeRate,
       currentBaseAmount: 0,
-      isCompleted: false, // Mặc định chưa xong
+      status: status || 'in_progress',
+      isCompleted: status === 'completed' ? true : false, 
     });
 
     // 3. Ghi Log
@@ -154,9 +155,10 @@ export const updateGoal = async (req: AuthRequest, res: Response) => {
     const userId = req.userId;
     const { id } = req.params;
     
-    // Lấy dữ liệu từ body (Joi đã validate là optional)
+    // 👇 Lấy 'status' thay vì 'isCompleted' (hoặc lấy cả 2 để hỗ trợ cũ)
     const { 
-        name, description, targetDate, isCompleted, 
+        name, description, targetDate, 
+        status, isCompleted, // Lấy cả 2
         targetOriginalAmount, targetCurrency 
     } = req.body;
     
@@ -167,13 +169,24 @@ export const updateGoal = async (req: AuthRequest, res: Response) => {
         return;
     }
 
-    // 2. Cập nhật thông tin cơ bản (Dùng cách check undefined cho PATCH)
+    // 2. Cập nhật thông tin cơ bản
     if (name !== undefined) goal.name = name;
     if (description !== undefined) goal.description = description;
     if (targetDate !== undefined) goal.targetDate = targetDate;
     
-    // Lưu ý: isCompleted sẽ được tính toán lại ở dưới, nhưng nếu user cố tình set tay thì ưu tiên
-    let manualCompletionStatus = isCompleted;
+    // 🔥 2b. XỬ LÝ STATUS (Ưu tiên logic mới)
+    let newStatus = status;
+
+    // Backward Compatibility: Nếu FE cũ gửi isCompleted mà không gửi status
+    if (!newStatus && isCompleted !== undefined) {
+        if (isCompleted === true) newStatus = 'completed';
+        if (isCompleted === false && goal.status === 'completed') newStatus = 'in_progress';
+    }
+
+    // Nếu người dùng chủ động set status (VD: set thành 'failed' hoặc 'completed')
+    if (newStatus) {
+        goal.status = newStatus;
+    }
 
     // 3. 🔥 XỬ LÝ TÀI CHÍNH (Tiền & Tỷ giá)
     // Kiểm tra xem có thay đổi gì về tiền nong không?
@@ -211,20 +224,23 @@ export const updateGoal = async (req: AuthRequest, res: Response) => {
         goal.targetCurrency = newCurrency;
     }
 
-    // 4. 🔥 TỰ ĐỘNG CHECK TRẠNG THÁI HOÀN THÀNH
-    // Nếu user không set tay isCompleted, hệ thống tự tính
-    if (manualCompletionStatus === undefined) {
+    // 4. 🔥 TỰ ĐỘNG CHECK TRẠNG THÁI (Logic mới)
+    // Chỉ chạy auto-check nếu người dùng KHÔNG set status thủ công trong lần request này
+    if (!newStatus) {
+        // Logic: Đã đủ tiền -> Completed
         if (goal.currentBaseAmount >= goal.targetBaseAmount) {
-            goal.isCompleted = true;
+            // Chỉ auto-complete nếu đang in_progress (đừng auto-complete cái đã failed)
+            if (goal.status === 'in_progress') {
+                goal.status = 'completed';
+            }
         } else {
-            // Nếu trước đó xong rồi, giờ sửa mục tiêu cao lên -> Mở lại goal
-            goal.isCompleted = false;
+            // Logic: Chưa đủ tiền
+            // Nếu đang là completed (do user sửa target amount cao lên) -> Reopen về in_progress
+            if (goal.status === 'completed') {
+                goal.status = 'in_progress';
+            }
         }
-    } else {
-        // Nếu user set tay
-        goal.isCompleted = manualCompletionStatus;
     }
-
     const updatedGoal = await goal.save();
 
     // 5. Log hành động
