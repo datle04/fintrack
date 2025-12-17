@@ -2,6 +2,9 @@ import nodemailer from "nodemailer";
 
 const transporter = nodemailer.createTransport({
   service: "gmail",
+  host: 'smtp.gmail.com',
+  port: 587, // 👈 Hãy thử đổi thành 587
+  secure: false, // 👈 Đi kèm với port 587 là secure false (dùng STARTTLS)
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
