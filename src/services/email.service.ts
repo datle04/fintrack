@@ -2,16 +2,16 @@ import nodemailer from "nodemailer";
 
 // Cấu hình transporter
 const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST, // 'smtp-relay.brevo.com'
-  port: parseInt(process.env.EMAIL_PORT || "587"), // Thử 587 trước, nếu lỗi thì đổi thành 2525
-  secure: false, // false cho 587 hoặc 2525
+  host: 'smtp-relay.brevo.com',
+  port: 2525, // 👈 QUAN TRỌNG: Bắt buộc dùng 2525 trên Render
+  secure: false, // Port 2525 không dùng SSL mặc định, nó dùng STARTTLS
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
-  // Thêm dòng này để log chi tiết lỗi nếu có
-  logger: true,
-  debug: true, 
+  tls: {
+    rejectUnauthorized: false // Thêm dòng này để tránh lỗi chứng chỉ SSL nếu có
+  }
 });
 
 export const sendOTPEmail = async (email: string, otp: string) => {
