@@ -24,7 +24,7 @@ router.use(logActivity);
 
 // User management
 router.get("/users", UserController.getAllUsers);
-router.put("/users/:userId", UserController.updateUserInfo);
+router.patch("/users/:userId", UserController.updateUserInfo);
 router.delete("/users/:userId", UserController.deleteUser);
 router.patch("/users/:userId/ban", UserController.banUser);
 router.patch("/users/:userId/unban", UserController.unbanUser);
