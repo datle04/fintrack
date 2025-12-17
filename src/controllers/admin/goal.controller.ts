@@ -58,6 +58,8 @@ export const getGoalById = async (req: AuthRequest, res: Response) => {
 export const adminUpdateGoal = async (req: AuthRequest, res: Response) => {
   const { goalId } = req.params;
 
+  console.log(req.body);
+
   const { 
     name, 
     description, 
