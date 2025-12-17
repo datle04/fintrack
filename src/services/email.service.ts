@@ -17,7 +17,7 @@ const transporter = nodemailer.createTransport({
 export const sendOTPEmail = async (email: string, otp: string) => {
   try {
     const mailOptions = {
-      from: `"FinTrack Security" <${process.env.EMAIL_USER}>`,
+      from: `"FinTrack Security" <ldat0909@gmail.com>`,
       to: email,
       subject: "Mã xác thực đổi mật khẩu - FinTrack",
       html: `
