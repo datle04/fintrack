@@ -114,7 +114,7 @@ export const updateUserInfo = async (req: AuthRequest, res: Response) => {
       userId,        
       "info",      // Dùng warning vì đổi role là hành động nhạy cảm
       message,                
-      "/setting"           
+      "/setting"            
     );
 
     // 6b. Gửi email (Rất quan trọng khi đổi Role)
