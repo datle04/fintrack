@@ -12,14 +12,12 @@ export interface IBudget extends Document {
   month: number;
   year: number;
 
-  // TRƯỜNG HIỂN THỊ GỐC (NEW)
-  originalAmount: number; // Số tiền gốc người dùng nhập (Ví dụ: 100)
-  originalCurrency: string; // Đơn vị tiền tệ gốc (Ví dụ: 'USD')
+  originalAmount: number; 
+  originalCurrency: string;
    
-  // TRƯỜNG TÍNH TOÁN CHUẨN (BASE CURRENCY)
-  totalAmount: number; // Tổng ngân sách đã quy đổi về VND
-  currency: string; // Luôn là 'VND'
-  exchangeRate: number; // Luôn là 1
+  totalAmount: number;
+  currency: string; 
+  exchangeRate: number; 
 
   categories: CategoryBudget[]; 
   alertLevel: number;
@@ -30,7 +28,6 @@ const BudgetSchema = new Schema<IBudget>({
   month: { type: Number, required: true },
   year: { type: Number, required: true },
 
-  // 💡 TRƯỜNG MỚI: Dùng để HIỂN THỊ
   originalAmount: { type: Number, required: true, default: 0 },
   originalCurrency: { type: String, required: true, default: 'VND' },
 
@@ -48,5 +45,7 @@ const BudgetSchema = new Schema<IBudget>({
   ],
   alertLevel: { type: Number, default: 0 },
 }, { timestamps: true });
+
+BudgetSchema.index({ user: 1, month: 1, year: 1 }, { unique: true });
 
 export default mongoose.model<IBudget>('Budget', BudgetSchema);

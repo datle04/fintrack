@@ -1,14 +1,12 @@
-// src/utils/sendEmail.ts
 import nodemailer from 'nodemailer';
 
-// 1. Tạo "transporter" (người vận chuyển)
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST,
   port: parseInt(process.env.EMAIL_PORT || '587'),
-  secure: false, // true cho port 465, false cho các port khác
+  secure: false, 
   auth: {
-    user: process.env.EMAIL_USER, // Email của bạn
-    pass: process.env.EMAIL_PASS, // Mật khẩu ứng dụng
+    user: process.env.EMAIL_USER, 
+    pass: process.env.EMAIL_PASS, 
   },
 });
 
@@ -24,7 +22,7 @@ interface EmailOptions {
 export const sendEmail = async (options: EmailOptions) => {
   try {
     const mailOptions = {
-      from: `"FinTrack App" <${process.env.EMAIL_USER}>`, // Tên người gửi
+      from: `"FinTrack App" <${process.env.EMAIL_USER}>`, 
       to: options.to,
       subject: options.subject,
       html: options.html,

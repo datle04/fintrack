@@ -5,7 +5,6 @@ import { Types } from 'mongoose';
 
 /**
  * Cron Job: Quét toàn bộ ngân sách để kiểm tra cảnh báo
- * (Dùng để "vét" các giao dịch định kỳ hoặc lỗi sót từ real-time)
  */
 export const checkBudgetAlert = async () => {
     const now = new Date();
@@ -18,10 +17,7 @@ export const checkBudgetAlert = async () => {
     const endOfMonth = new Date(Date.UTC(currentYear, currentMonth, 0, 23, 59, 59, 999));
 
     try {
-        // --- AGGREGATION PIPELINE (GIỮ NGUYÊN CỦA BẠN - RẤT TỐT) ---
         const budgetsWithSpending = await Budget.aggregate([
-            // ... (Copy nguyên xi pipeline từ code cũ của bạn vào đây) ...
-            // ... Từ $match đến $project ...
             {
                 $match: { month: currentMonth, year: currentYear }
             },
@@ -85,10 +81,8 @@ export const checkBudgetAlert = async () => {
             }
         ]);
 
-        console.log(`[Cron] 📊 Tìm thấy ${budgetsWithSpending.length} budget.`);
+        console.log(`[Cron] Tìm thấy ${budgetsWithSpending.length} budget.`);
 
-        // --- LOGIC XỬ LÝ (ĐÃ CẬP NHẬT THEO SYNC STATE) ---
-        // Sử dụng Promise.all để chạy nhanh hơn thay vì loop tuần tự
         await Promise.all(budgetsWithSpending.map(async (budget) => {
             const {
                 _id, user, month, year,
@@ -106,7 +100,6 @@ export const checkBudgetAlert = async () => {
             
             const currentTotalLevel = getThresholdLevel(totalPercent);
 
-            // Gọi Helper chung (xử lý cả tăng và giảm)
             if (currentTotalLevel !== dbTotalLevel) {
                 const message = `⚠️ Cảnh báo: Bạn đã tiêu ${totalPercent}% tổng ngân sách tháng ${month}/${year}.`;
                 await updateAlertLevelAndNotify(
@@ -114,13 +107,12 @@ export const checkBudgetAlert = async () => {
                     _id as Types.ObjectId,
                     currentTotalLevel,
                     dbTotalLevel,
-                    false, // isCategory
+                    false,
                     "",
                     message
                 );
             }
 
-            // === B. Xử lý Ngân sách DANH MỤC ===
             if (categories && categories.length > 0) {
                 await Promise.all(categories.map(async (cat: any) => {
                     const { category, amount: catBudget, alertLevel: dbCatLevel = 0 } = cat;
@@ -139,7 +131,7 @@ export const checkBudgetAlert = async () => {
                             _id as Types.ObjectId,
                             currentCatLevel,
                             dbCatLevel,
-                            true, // isCategory
+                            true,
                             category,
                             message
                         );
@@ -156,8 +148,6 @@ export const checkBudgetAlert = async () => {
 };
 
 export const initCheckBudgetAlert = () => {
-    // Chạy ngay khi khởi động server (để test)
     checkBudgetAlert(); 
-    // Lên lịch chạy hàng ngày lúc 00:30
     cron.schedule('30 0 * * *', checkBudgetAlert); 
 };

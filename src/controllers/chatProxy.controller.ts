@@ -6,11 +6,8 @@ export const chatProxy = async (req: AuthRequest, res: Response) => {
   try {
     const { message, history } = req.body;
     
-    // Lấy thông tin User từ Middleware của Backend
     const userId = req.user?._id || req.userId; 
     
-    // Lấy token raw (nếu chatbot cần dùng để gọi ngược lại API khác)
-    // Token thường nằm ở header: "Bearer <token>"
     const token = req.headers.authorization?.split(' ')[1] || req.cookies?.accessToken;
 
     let chatbotUrl = process.env.CHATBOT_URL || 'http://localhost:4001';
@@ -20,12 +17,11 @@ export const chatProxy = async (req: AuthRequest, res: Response) => {
 
     console.log(chatbotUrl);
 
-    // Gửi Message + UserId + Token sang Chatbot
     const response = await axios.post(`${chatbotUrl}/chat`, {
       message,
       history,
       userId, 
-      token   // Gửi kèm để chatbotService dùng
+      token  
     });
 
     res.status(200).json(response.data);

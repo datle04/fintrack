@@ -6,13 +6,11 @@ export const uploadReceiptImages = async (req: Request, res: Response) => {
   try {
     const files = req.files as Express.Multer.File[];
 
-    // Kiểm tra file
     if (!files || !Array.isArray(files) || files.length === 0) {
         res.status(400).json({ message: "Không có file đính kèm!" });
         return;
     }
 
-    // Upload từng ảnh lên Cloudinary
     const uploadPromises = files.map((file) => {
       const base64 = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
       return cloudinary.uploader.upload(base64, {

@@ -26,7 +26,6 @@ export const getCategorySuggestion = async (note: string) => {
   Trả về kết quả ngắn gọn: chỉ tên danh mục (ví dụ: sales).
   `;
 
-  // ✅ Model mới dùng version v1
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
   const result = await model.generateContent({

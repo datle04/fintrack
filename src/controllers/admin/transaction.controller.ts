@@ -14,16 +14,13 @@ import User from "../../models/User";
 import mongoose from "mongoose";
 import { checkBudgetAlertForUser } from "../../services/budget.service";
 
-// Hàm xử lý chung để lấy tỷ giá và chuẩn bị dữ liệu giao dịch
 const processTransactionData = async (data: any) => {
     const transactionCurrency = (data.currency || 'VND').toUpperCase();
     let exchangeRate = 1;
 
     if (transactionCurrency !== 'VND') {
-        // Đây là nơi gọi service tỷ giá
         exchangeRate = await getExchangeRate(transactionCurrency); 
         
-        // Kiểm tra tỷ giá an toàn
         if (exchangeRate === 1) {
              throw new Error(`API tỷ giá hối đoái đang trả về tỷ giá 1.0 cho ${transactionCurrency}. Vui lòng kiểm tra API Key.`);
         }
@@ -38,19 +35,18 @@ const processTransactionData = async (data: any) => {
 
 export const getAllTransactions = async (req: AuthRequest, res: Response) => {
   const {
-    userId, // Dùng cho filter dropdown (nếu có)
+    userId, 
     type,
     category,
     startDate,
     endDate,
-    keyword, // Nhận từ ô input search
+    keyword, 
     page = 1,
     limit = 20,
   } = req.query;
 
   const query: any = {};
 
-  // 1. Filter cơ bản
   if (userId) query.userId = userId;
   if (type) query.type = type;
   if (category) query.category = category;
@@ -62,27 +58,22 @@ export const getAllTransactions = async (req: AuthRequest, res: Response) => {
     };
   }
 
-  // 2. XỬ LÝ SEARCH THÔNG MINH (KEYWORD)
   if (keyword) {
     const searchString = keyword as string;
     const searchRegex = { $regex: searchString, $options: "i" };
     
     const orConditions: any[] = [];
 
-    // 1. Check ID hợp lệ
     if (mongoose.Types.ObjectId.isValid(searchString)) {
         console.log("✅ Keyword là ObjectId hợp lệ:", searchString);
-        // Lưu ý: Phải ép kiểu sang ObjectId nếu dùng Mongoose raw query đôi khi cần thiết
         orConditions.push({ user: new mongoose.Types.ObjectId(searchString) }); 
         orConditions.push({ _id: new mongoose.Types.ObjectId(searchString) });
     } else {
         console.log("❌ Keyword KHÔNG phải ObjectId");
     }
 
-    // B. Tìm theo Note (Ghi chú giao dịch)
     orConditions.push({ note: searchRegex });
 
-    // 3. Tìm User
     const matchingUsers = await User.find({
       $or: [{ name: searchRegex }, { email: searchRegex }],
     }).select("_id");
@@ -96,11 +87,9 @@ export const getAllTransactions = async (req: AuthRequest, res: Response) => {
         query.$or = orConditions;
     }
 
-    // --- 👇 QUAN TRỌNG: IN RA QUERY CUỐI CÙNG ---
   console.log("🚀 FINAL QUERY:", JSON.stringify(query, null, 2));
   }
 
-  // ... (Phần sort, skip, limit giữ nguyên)
   const skip = (+page - 1) * +limit;
 
   const transactions = await Transaction.find(query)
@@ -119,8 +108,7 @@ export const getAllTransactions = async (req: AuthRequest, res: Response) => {
   });
 };
 
-// Admin không cần check req.userId
-// Hàm này đã xử lý đa tiền tệ qua 'processTransactionData', giữ nguyên
+
 export const adminUpdateTransaction = async (
   req: AuthRequest,
   res: Response
@@ -128,23 +116,18 @@ export const adminUpdateTransaction = async (
   try {
     const { id } = req.params;
 
-    // 1. Chỉ lấy những trường Admin ĐƯỢC PHÉP sửa
     const {
       note,
       existingImages,
-      reason, // Bắt buộc phải có lý do
+      reason, 
     } = req.body;
 
-    // 2. Tìm giao dịch GỐC
     const originalTx = await Transaction.findById(id);
     if (!originalTx) {
       res.status(404).json({ message: "Giao dịch không tồn tại!" });
       return;
     }
 
-    // -------------------------------------------------------------
-    // 3. XỬ LÝ ẢNH (Logic giữ nguyên vì Admin được quyền sửa bằng chứng)
-    // -------------------------------------------------------------
     let keepImages: string[] = [];
     if (existingImages) {
       keepImages = Array.isArray(existingImages) ? existingImages : [existingImages];
@@ -167,30 +150,20 @@ export const adminUpdateTransaction = async (
     
     const finalImages = [...keepImages, ...newUploadedImages];
 
-    // -------------------------------------------------------------
-    // 4. CHUẨN BỊ DỮ LIỆU UPDATE (LỌC BỎ CÁC TRƯỜNG TÀI CHÍNH)
-    // -------------------------------------------------------------
-    // Tuyệt đối KHÔNG đưa amount, currency, category, date, goalId vào đây
     const updateFields: any = {
-      note: note, // Cho phép sửa ghi chú
-      receiptImage: finalImages, // Cho phép sửa ảnh
-      // Không update user, amount, date...
+      note: note, 
+      receiptImage: finalImages,
     };
 
-    // -------------------------------------------------------------
-    // 5. SO SÁNH THAY ĐỔI (CHỈ LOG NHỮNG GÌ THỰC SỰ ĐỔI)
-    // -------------------------------------------------------------
     const changes: string[] = [];
 
     if ((originalTx.note || "") !== (note || "")) {
       changes.push(`Ghi chú (từ "${originalTx.note || ''}" thành "${note || ''}")`);
     }
 
-    // So sánh ảnh đơn giản qua độ dài mảng (hoặc logic phức tạp hơn nếu cần)
     if (originalTx.receiptImage?.length !== finalImages.length) {
       changes.push(`Ảnh hóa đơn (thay đổi số lượng từ ${originalTx.receiptImage?.length} thành ${finalImages.length})`);
     } else {
-        // Nếu độ dài bằng nhau, kiểm tra xem nội dung có khác không (sơ bộ)
         const oldImagesJson = JSON.stringify(originalTx.receiptImage.sort());
         const newImagesJson = JSON.stringify(finalImages.sort());
         if (oldImagesJson !== newImagesJson) {
@@ -198,25 +171,17 @@ export const adminUpdateTransaction = async (
         }
     }
 
-    // Nếu không có gì thay đổi thì báo luôn (Tiết kiệm db write)
     if (changes.length === 0) {
         res.status(200).json({ message: "Không có thay đổi nào được thực hiện." });
         return;
     }
 
-    // -------------------------------------------------------------
-    // 6. CẬP NHẬT DATABASE
-    // -------------------------------------------------------------
     const updatedTx = await Transaction.findByIdAndUpdate(
         id, 
         { $set: updateFields }, 
         { new: true }
     );
 
-    // -------------------------------------------------------------
-    // 7. GỬI THÔNG BÁO CHO USER
-    // -------------------------------------------------------------
-    // Tạo tiêu đề ngắn gọn để user nhận diện giao dịch
     const txDesc = `[${originalTx.amount.toLocaleString()} ${originalTx.currency}]`; 
     
     const message = `Admin đã cập nhật thông tin bổ sung (Ghi chú/Ảnh) cho giao dịch ${txDesc}.
@@ -230,21 +195,17 @@ export const adminUpdateTransaction = async (
       "/transaction"
     );
 
-    // -------------------------------------------------------------
-    // 8. GHI LOG HỆ THỐNG
-    // -------------------------------------------------------------
     await logAction(req, {
       action: "Admin Update Transaction",
       statusCode: 200,
       description: `Admin cập nhật giao dịch ID: ${id}. Lý do: ${reason}`,
-      
-      // 👇 Metadata giúp bạn lưu chi tiết kỹ thuật mà không làm rối description
+
       metadata: {
-        targetId: id,               // ID của giao dịch bị sửa
-        reason: reason,             // Lý do
-        changes: changes,           // Mảng các thay đổi ["Ghi chú từ A -> B"]
-        originalData: originalTx,   // (Tùy chọn) Lưu luôn bản gốc để backup nếu cần
-        adminIp: req.ip             // IP của admin thực hiện
+        targetId: id,              
+        reason: reason,            
+        changes: changes,         
+        originalData: originalTx,  
+        adminIp: req.ip             
       }
     });
 
@@ -279,18 +240,13 @@ export const adminDeleteTransaction = async (req: AuthRequest, res: Response) =>
        return;
     }
 
-    // 3. THỰC HIỆN XÓA
     await Transaction.findByIdAndDelete(id);
-
-    // XỬ LÝ SIDE-EFFECTS (Đảm bảo tính toàn vẹn)
     
-    // Cập nhật lại Goal (Rollback tiến độ)
     if (txToDelete.goalId) {
       await recalculateGoalProgress(txToDelete.goalId);
       console.log(`[Admin] Đã cập nhật lại tiến độ Goal ${txToDelete.goalId} sau khi xóa Tx.`);
     }
 
-    // Cập nhật lại Budget Alert
     if (txToDelete.user) {
         await checkBudgetAlertForUser(txToDelete.user.toString());
     }
@@ -310,13 +266,11 @@ export const adminDeleteTransaction = async (req: AuthRequest, res: Response) =>
       "/transaction" 
     );
 
-    // Ghi log kèm snapshot
     await logAction(req, {
       action: "Admin Delete Transaction",
       statusCode: 200,
       description: `Admin xóa giao dịch ID ${id}. Lý do: ${reason}`,
       level: "critical", 
-      // Lưu lại bản sao lưu
       metadata: {
         deletedTransaction: txToDelete.toObject(), 
         reason: reason,
@@ -343,28 +297,24 @@ export const adminDeleteTransaction = async (req: AuthRequest, res: Response) =>
 
 export const getTransactionStats = async (req: AuthRequest, res: Response) => {
   try {
-    // --- SỬA LỖI 1: TÍNH TỔNG DỰA TRÊN TỶ GIÁ ---
     const totalIncome = await Transaction.aggregate([
       { $match: { type: "income" } },
       {
         $group: {
           _id: null,
           total: {
-            // Phải nhân amount với exchangeRate
             $sum: { $multiply: ["$amount", { $ifNull: ["$exchangeRate", 1] }] },
           },
         },
       },
     ]);
 
-    // --- SỬA LỖI 2: TÍNH TỔNG DỰA TRÊN TỶ GIÁ ---
     const totalExpense = await Transaction.aggregate([
       { $match: { type: "expense" } },
       {
         $group: {
           _id: null,
           total: {
-            // Phải nhân amount với exchangeRate
             $sum: { $multiply: ["$amount", { $ifNull: ["$exchangeRate", 1] }] },
           },
         },

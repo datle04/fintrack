@@ -13,8 +13,6 @@ export const logAction = async (
     statusCode: number;
     description?: string;
     level?: "info" | "warning" | "error" | "critical";
-    
-    // 👇 THÊM DÒNG NÀY: Tham số tùy chọn
     metadata?: any; 
   }
 ) => {
@@ -34,8 +32,6 @@ export const logAction = async (
       description: params.description || "",
       level: params.level || "info",
       timestamp: new Date(),
-      
-      // 👇 THÊM DÒNG NÀY: Lưu metadata vào DB
       metadata: params.metadata 
     });
   } catch (error) {

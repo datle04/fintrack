@@ -1,4 +1,3 @@
-// src/socket/sessionTracker.ts
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import { SessionModel } from "../models/Session";
@@ -6,7 +5,6 @@ import * as cookie from "cookie";
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 
-// Key: socket.id, Value: sessionId
 const activeSessions = new Map<string, string>();
 
 export const setupSessionTracking = (io: Server) => {
@@ -16,17 +14,11 @@ export const setupSessionTracking = (io: Server) => {
     try {
       let userId: string | null = null;
 
-      // -----------------------------------------------------------
-      // BƯỚC 1: Tìm UserID từ Auth Object (Code Frontend mới gửi cái này)
-      // -----------------------------------------------------------
       if (socket.handshake.auth && socket.handshake.auth.userId) {
         userId = socket.handshake.auth.userId;
         console.log(`🔑 [SessionTracker] Auth via Auth Object: ${userId}`);
       }
-      
-      // -----------------------------------------------------------
-      // BƯỚC 2: Tìm UserID từ Cookie (Fallback cho trường hợp khác)
-      // -----------------------------------------------------------
+
       else if (socket.handshake.headers.cookie) {
         try {
           const cookies = cookie.parse(socket.handshake.headers.cookie);
@@ -42,25 +34,19 @@ export const setupSessionTracking = (io: Server) => {
         }
       }
 
-      // -----------------------------------------------------------
-      // KIỂM TRA CUỐI CÙNG: Nếu không tìm thấy UserID ở đâu cả -> DISCONNECT
-      // -----------------------------------------------------------
       if (!userId) {
         console.warn(`⛔ [SessionTracker] Rejected socket ${socket.id}: No UserID found in Auth or Cookie`);
         socket.disconnect(true);
         return;
       }
 
-      // Gán userId vào data để dùng sau này
       socket.data.userId = userId;
 
-      // (Các hàm log ping/pong giữ nguyên)
       socket.conn.on("packet", (packet) => {
         if (packet.type === "ping") console.log("[Server] Ping received");
         if (packet.type === "pong") console.log("[Server] Pong received");
       });
 
-      // --- DỌN DẸP CÁC SESSION "ZOMBIE" CỦA USER NÀY ---
       try {
         await SessionModel.updateMany(
           { userId: userId, logoutAt: null },
@@ -72,9 +58,7 @@ export const setupSessionTracking = (io: Server) => {
       } catch (cleanupErr) {
         console.error("[Session] Lỗi khi dọn dẹp session cũ:", cleanupErr);
       }
-      // ----------------------------------------------------
 
-      // Tạo session login mới
       const loginTime = new Date();
       try {
         const session = await SessionModel.create({
@@ -83,7 +67,6 @@ export const setupSessionTracking = (io: Server) => {
           logoutAt: null,
         });
 
-        // Dùng socket.id làm key
         activeSessions.set(socket.id, session._id.toString());
         console.log(
           `✅ [Session] Created for ${userId} (Socket: ${socket.id})`
@@ -92,7 +75,6 @@ export const setupSessionTracking = (io: Server) => {
         console.error("❌ [Session] Failed to create session:", err);
       }
 
-      // Xử lý disconnect
       socket.on("disconnect", async () => {
         console.log(`[Socket] Disconnected user ${userId} (Socket: ${socket.id})`);
 

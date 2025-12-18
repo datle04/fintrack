@@ -10,9 +10,6 @@ export interface ILog extends Document {
   level: "info" | "warning" | "error" | "critical";
   user?: Types.ObjectId;
   timestamp: Date;
-  
-  // 👇 THÊM DÒNG NÀY
-  // Dùng 'any' hoặc 'Record<string, any>' để linh hoạt lưu object
   metadata?: any; 
 }
 
@@ -30,12 +27,15 @@ const LogSchema = new Schema<ILog>({
     index: true,
   },
   
-  // 👇 THÊM DÒNG NÀY
-  // Schema.Types.Mixed cho phép lưu object JSON tùy ý
   metadata: { type: Schema.Types.Mixed }, 
 
   timestamp: { type: Date, default: Date.now, expires: '30d' }, 
 });
+
+LogSchema.index({ user: 1, timestamp: -1 }); 
+LogSchema.index({ level: 1, timestamp: -1 });
+LogSchema.index({ action: 1, timestamp: -1 });
+LogSchema.index({ statusCode: 1, timestamp: -1 });
 
 const Log = mongoose.model<ILog>("Log", LogSchema);
 export default Log;

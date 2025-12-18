@@ -2,7 +2,6 @@ import { Request, Response } from "express";
 import { SessionModel } from "../../models/Session";
 import { AuthRequest } from "../../middlewares/requireAuth";
 
-// Lấy thứ trong tuần: 1 (T2) → 7 (CN)
 const getWeekday = (date: Date) => {
   const day = date.getDay();
   return day === 0 ? 7 : day;
@@ -25,12 +24,10 @@ export const getWeeklyDurationAllUsers = async (req: AuthRequest, res: Response)
     const endDate = new Date();
     endDate.setHours(23, 59, 59, 999);
 
-    // Lấy tất cả sessions trong khoảng thời gian
     const sessions = await SessionModel.find({
       loginAt: { $gte: startDate, $lte: endDate },
     });
 
-    // Gom nhóm theo thứ trong tuần
     const weekdayDurations: { [key: number]: number } = {
       1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0,
     };
@@ -45,9 +42,8 @@ export const getWeeklyDurationAllUsers = async (req: AuthRequest, res: Response)
       }
     });
 
-    // Nếu chế độ "avg4weeks", chia cho (4 tuần * số người dùng)
     if (mode === "avg4weeks") {
-      const divisor = uniqueUserIds.size * 4 || 1; // tránh chia 0
+      const divisor = uniqueUserIds.size * 4 || 1;
       for (let i = 1; i <= 7; i++) {
         weekdayDurations[i] = Math.round(weekdayDurations[i] / divisor);
       }

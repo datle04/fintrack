@@ -3,7 +3,7 @@ import Transaction from "../models/Transaction";
 import { getConversionRate } from "./exchangeRate";
 
 /**
- * 1. Tính Tổng Thu / Chi / Balance (Có quy đổi tiền tệ)
+ * Tính Tổng Thu / Chi / Balance (Có quy đổi tiền tệ)
  * Dùng cho: Dashboard, Financial Health
  */
 export const calculateTotalStats = async (
@@ -27,8 +27,8 @@ export const calculateTotalStats = async (
         total: {
           $sum: {
             $multiply: [
-              { $multiply: ["$amount", { $ifNull: ["$exchangeRate", 1] }] }, // Đổi về VND
-              conversionRate, // Đổi sang Target
+              { $multiply: ["$amount", { $ifNull: ["$exchangeRate", 1] }] }, 
+              conversionRate, 
             ],
           },
         },
@@ -48,16 +48,16 @@ export const calculateTotalStats = async (
 };
 
 /**
- * 2. Tính Thống kê theo Danh mục (Có quy đổi tiền tệ & Sắp xếp)
+ * Tính Thống kê theo Danh mục (Có quy đổi tiền tệ & Sắp xếp)
  * Dùng cho: Category Stats Chart, Top Spending Advice
  */
 export const calculateCategoryStats = async (
   userId: string,
   startDate: Date,
   endDate: Date,
-  type: string, // 'income' hoặc 'expense'
+  type: string,
   targetCurrency: string,
-  limit: number = 0 // 0 = Lấy hết, > 0 = Limit (ví dụ top 3)
+  limit: number = 0 
 ) => {
   const conversionRate = await getConversionRate("VND", targetCurrency);
 
@@ -72,13 +72,11 @@ export const calculateCategoryStats = async (
     {
       $group: {
         _id: "$category",
-        // Tính Base Amount (VND)
         baseAmount: {
           $sum: { $multiply: ["$amount", { $ifNull: ["$exchangeRate", 1] }] },
         },
       },
     },
-    // Tính Display Amount (Target Currency)
     {
       $project: {
         _id: 0,
@@ -90,20 +88,16 @@ export const calculateCategoryStats = async (
     { $sort: { baseAmount: -1 } },
   ];
 
-  // Nếu có limit thì thêm vào pipeline
   if (limit > 0) {
     pipeline.push({ $limit: limit });
   }
-
-  // Nếu Category là ObjectId, bạn có thể thêm $lookup ở đây để lấy tên
-  // (Giả sử code cũ của bạn category lưu string hoặc đã lookup)
   
   const stats = await Transaction.aggregate(pipeline);
   return { stats, conversionRate };
 };
 
 /**
- * 3. Lấy chi tiêu thực tế từng danh mục (Raw VND)
+ * Lấy chi tiêu thực tế từng danh mục (Raw VND)
  * Dùng riêng cho: Budget Calculation (để so sánh với ngân sách gốc)
  */
 export const getRawSpendingByCategory = async (

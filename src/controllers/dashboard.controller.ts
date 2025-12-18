@@ -19,22 +19,18 @@ export const getDashboardStats = async (req: AuthRequest, res: Response) => {
         return;
     }
 
-    // 1. Xác định tiền tệ hiển thị
     let targetCurrency = currency as string;
     if (!targetCurrency) {
       const user = await User.findById(userId).select("currency").lean();
       targetCurrency = user?.currency || "VND";
     }
 
-    // 2. Chuẩn hóa Date
     const start = new Date(startDate as string);
     start.setUTCHours(0, 0, 0, 0);
     const end = getEndOfDay(endDate as string);
 
-    // 3. 🔥 GỌI SERVICE (Thay thế toàn bộ logic aggregate cũ)
     const stats = await calculateTotalStats(userId, start, end, targetCurrency);
 
-    // 4. Trả về (Format số liệu)
     res.status(200).json({
       totalIncome: stats.income.toFixed(2),
       totalExpense: stats.expense.toFixed(2),
@@ -53,7 +49,6 @@ export const getDashboardByMonths = async (req: AuthRequest, res: Response) => {
     const userId = req.userId;
     const currentYear = new Date().getFullYear();
 
-    // Mảng kết quả cuối cùng
     const monthlyStats = await Promise.all(
     Array.from({ length: 12 }, async (_, month) => {
         const start = new Date(Date.UTC(currentYear, month, 1));

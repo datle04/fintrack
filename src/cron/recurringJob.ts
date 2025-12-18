@@ -12,23 +12,20 @@ export const initRecurringTransactionJob = () => {
     const month = now.getMonth();
     const year = now.getFullYear();
 
-    // Cấu hình Batch
-    const BATCH_SIZE = 100; // Xử lý song song 100 giao dịch cùng lúc
+    const BATCH_SIZE = 100; 
     let batchPromises: any[] = [];
 
-    // 1. Dùng Cursor để Stream dữ liệu (Không tốn RAM)
+    // 1. Dùng Cursor để Stream dữ liệu 
     const cursor = Transaction.find({
       isRecurring: true,
       date: null,
     }).cursor();
 
-    // Hàm xử lý logic cho 1 template (Tách ra cho gọn)
     const processTemplate = async (template: any) => {
       try {
         const lastDayOfMonth = getLastDayOfMonth(year, month);
         const triggerDay = Math.min(template.recurringDay, lastDayOfMonth);
 
-        // Logic "Catch-up": Chạy nếu đến ngày hoặc đã qua ngày
         if (triggerDay > today) return; 
 
         // Kiểm tra tồn tại
@@ -49,7 +46,7 @@ export const initRecurringTransactionJob = () => {
           type: template.type,
           category: template.category,
           note: template.note,
-          date: new Date(year, month, triggerDay), // Lưu đúng ngày kích hoạt
+          date: new Date(year, month, triggerDay), 
           isRecurring: true,
           recurringDay: template.recurringDay,
           recurringId: template.recurringId,
@@ -59,7 +56,7 @@ export const initRecurringTransactionJob = () => {
           receiptImage: [],
         });
 
-        // Cập nhật Goal (nếu có)
+        // Cập nhật Goal 
         if (newTx.goalId) {
           await recalculateGoalProgress(newTx.goalId);
         }
@@ -68,17 +65,14 @@ export const initRecurringTransactionJob = () => {
       }
     };
 
-    // 2. Vòng lặp thông minh
     for (let doc = await cursor.next(); doc != null; doc = await cursor.next()) {
       // Đẩy task vào mảng batch
       batchPromises.push(processTemplate(doc));
 
       // Nếu mảng đầy 100 task -> Thực thi song song
       if (batchPromises.length >= BATCH_SIZE) {
-        await Promise.all(batchPromises); // Chờ 100 cái này xong hết mới đi tiếp
-        batchPromises = []; // Reset mảng để nhận 100 cái tiếp theo
-        // (Optional) Cho nghỉ nhẹ 50ms để CPU thở nếu server yếu
-        // await new Promise(resolve => setTimeout(resolve, 50)); 
+        await Promise.all(batchPromises); 
+        batchPromises = []; 
       }
     }
 

@@ -11,8 +11,8 @@ export interface ITransaction extends Document {
     date: Date;
     receiptImage?: string[];
     isRecurring?: boolean;
-    recurringDay?: number; // ví dụ: 15 -> mỗi tháng vào ngày 15
-    recurringId?: string; // để nhóm các recurring lại
+    recurringDay?: number; 
+    recurringId?: string; 
     goalId: mongoose.Types.ObjectId;
     createdAt?: Date;
     updatedAt?: Date;
@@ -27,19 +27,19 @@ const transactionSchema = new Schema<ITransaction> (
         currency: { 
             type: String, 
             required: true, 
-            default: 'VND' // Đơn vị tiền tệ của giao dịch (ví dụ: USD, EUR)
+            default: 'VND'
         },
         exchangeRate: { 
             type: Number, 
             required: true, 
-            default: 1 // Tỷ giá quy đổi về đơn vị tiền tệ gốc (Base Currency)
+            default: 1 
         },
         note: {type: String, required: false},
         date: {type: Date, required: false},
         receiptImage: {type: [String], required: false},
         isRecurring: {type: Boolean, default: false},
         recurringDay: { type: Number, min: 1, max: 31 },
-        recurringId: { type: String }, // dùng để track recurring serie
+        recurringId: { type: String }, 
         goalId: {
             type:mongoose.Schema.Types.ObjectId,
             ref: 'Goal',
@@ -49,8 +49,18 @@ const transactionSchema = new Schema<ITransaction> (
     {timestamps: true}
 );
 
-// Thêm index để query nhanh theo user + date
+// Dashboard chính (Tìm theo ngày)
 transactionSchema.index({ user: 1, date: -1 });
+
+// Tính toán Goal (Tìm theo GoalID)
+transactionSchema.index({ goalId: 1 });
+
+// Cron Job (Tìm giao dịch định kỳ)
+transactionSchema.index({ isRecurring: 1, recurringDay: 1 });
+
+// Filter & Report (Tìm theo loại/danh mục)
+transactionSchema.index({ user: 1, category: 1 });
+transactionSchema.index({ type: 1 }); 
 
 
 export default mongoose.model<ITransaction>("Transaction", transactionSchema);

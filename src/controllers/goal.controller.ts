@@ -10,15 +10,11 @@ import { logAction } from '../utils/logAction';
 
 const APP_BASE_CURRENCY = 'VND';
 
-/* ============================================================
- * 🔹 Helper: Tính tiến độ mục tiêu
- * ============================================================ */
+// Helper: Tính tiến độ mục tiêu
 const calculateProgress = (currentBase: number, targetBase: number): number =>
   targetBase > 0 ? Math.min((currentBase / targetBase) * 100, 100) : 0;
 
-/* ============================================================
- * 🔹 Helper: Tính kế hoạch tiết kiệm
- * ============================================================ */
+// Helper: Tính kế hoạch tiết kiệm
 const calculateSavingsPlan = (remainingBaseAmount: number, targetDate: Date) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -49,15 +45,13 @@ const calculateSavingsPlan = (remainingBaseAmount: number, targetDate: Date) => 
   };
 };
 
-/* ============================================================
- * 🔹 Helper: Bổ sung dữ liệu hiển thị cho Goal
- * ============================================================ */
+// Bổ sung dữ liệu hiển thị cho Goal
 const enhanceGoalResponse = (goal: IGoal) => {
   const progressPercent = calculateProgress(goal.currentBaseAmount, goal.targetBaseAmount);
   const remainingBaseAmount = goal.targetBaseAmount - goal.currentBaseAmount;
   const basePlan = calculateSavingsPlan(remainingBaseAmount, goal.targetDate);
 
-  const rate = goal.creationExchangeRate || 1; // Target → VND
+  const rate = goal.creationExchangeRate || 1;
 
   const toDisplay = (v: number) => Math.max(v / rate, 0);
 
@@ -75,19 +69,17 @@ const enhanceGoalResponse = (goal: IGoal) => {
   };
 };
 
-/* ============================================================
- * 🔹 Controller: Tạo mục tiêu
- * ============================================================ */
+
+// CREATE GOAL
 export const createGoal = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.userId;
-    // 👇 Thêm 'status' vào destructuring
     const { name, targetOriginalAmount, targetCurrency, targetDate, description, status } = req.body;
 
     let targetBaseAmount = targetOriginalAmount;
     let creationExchangeRate = 1;
 
-    // 1. Xử lý tỷ giá nếu khác tiền tệ gốc
+    // Xử lý tỷ giá nếu khác tiền tệ gốc
     if (targetCurrency && targetCurrency !== APP_BASE_CURRENCY) {
       try {
         const rate = await getConversionRate(targetCurrency, APP_BASE_CURRENCY);
@@ -95,13 +87,11 @@ export const createGoal = async (req: AuthRequest, res: Response) => {
         creationExchangeRate = rate;
       } catch (err) {
         console.error('Lỗi API tỷ giá:', err);
-        // Fallback: Nếu lỗi API, tạm thời dùng tỷ giá 1 hoặc báo lỗi
         res.status(503).json({ message: 'Không thể lấy tỷ giá hối đoái lúc này.' });
         return;
       }
     }
 
-   // 2. Tạo Goal
     const newGoal = await Goal.create({
       userId,
       name,
@@ -116,7 +106,6 @@ export const createGoal = async (req: AuthRequest, res: Response) => {
       isCompleted: status === 'completed' ? true : false, 
     });
 
-    // 3. Ghi Log
     await logAction(req, {
         action: "Create Goal",
         statusCode: 201,
@@ -129,9 +118,8 @@ export const createGoal = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ message: 'Lỗi khi tạo mục tiêu', error });
   }
 };
-/* ============================================================
- * 🔹 Controller: Lấy danh sách mục tiêu
- * ============================================================ */
+
+// GET GOALS
 export const getGoals = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.userId;
@@ -147,49 +135,38 @@ export const getGoals = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/* ============================================================
- * 🔹 Controller: Cập nhật mục tiêu
- * ============================================================ */
 export const updateGoal = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.userId;
     const { id } = req.params;
     
-    // 👇 Lấy 'status' thay vì 'isCompleted' (hoặc lấy cả 2 để hỗ trợ cũ)
     const { 
         name, description, targetDate, 
-        status, isCompleted, // Lấy cả 2
+        status, isCompleted,
         targetOriginalAmount, targetCurrency 
     } = req.body;
     
-    // 1. Tìm Goal cũ
     const goal = await Goal.findOne({ _id: id, userId });
     if (!goal) {
         res.status(404).json({ message: 'Mục tiêu không tồn tại' });
         return;
     }
 
-    // 2. Cập nhật thông tin cơ bản
     if (name !== undefined) goal.name = name;
     if (description !== undefined) goal.description = description;
     if (targetDate !== undefined) goal.targetDate = targetDate;
     
-    // 🔥 2b. XỬ LÝ STATUS (Ưu tiên logic mới)
     let newStatus = status;
 
-    // Backward Compatibility: Nếu FE cũ gửi isCompleted mà không gửi status
     if (!newStatus && isCompleted !== undefined) {
         if (isCompleted === true) newStatus = 'completed';
         if (isCompleted === false && goal.status === 'completed') newStatus = 'in_progress';
     }
 
-    // Nếu người dùng chủ động set status (VD: set thành 'failed' hoặc 'completed')
     if (newStatus) {
         goal.status = newStatus;
     }
 
-    // 3. 🔥 XỬ LÝ TÀI CHÍNH (Tiền & Tỷ giá)
-    // Kiểm tra xem có thay đổi gì về tiền nong không?
     const isAmountChanged = targetOriginalAmount !== undefined && targetOriginalAmount !== goal.targetOriginalAmount;
     const isCurrencyChanged = targetCurrency !== undefined && targetCurrency !== goal.targetCurrency;
 
@@ -197,12 +174,11 @@ export const updateGoal = async (req: AuthRequest, res: Response) => {
         const newAmount = targetOriginalAmount !== undefined ? targetOriginalAmount : goal.targetOriginalAmount;
         const newCurrency = targetCurrency !== undefined ? targetCurrency : goal.targetCurrency;
 
-        // Trường hợp 1: Đổi loại tiền tệ (VND -> USD) -> BẮT BUỘC lấy tỷ giá mới
         if (isCurrencyChanged) {
             if (newCurrency !== APP_BASE_CURRENCY) {
                 try {
                     const rate = await getConversionRate(newCurrency, APP_BASE_CURRENCY);
-                    goal.creationExchangeRate = rate; // Cập nhật luôn tỷ giá tham chiếu mới
+                    goal.creationExchangeRate = rate; 
                     goal.targetBaseAmount = newAmount * rate;
                 } catch (err) {
                     res.status(503).json({ message: "Lỗi cập nhật tỷ giá." });
@@ -213,29 +189,22 @@ export const updateGoal = async (req: AuthRequest, res: Response) => {
                 goal.targetBaseAmount = newAmount;
             }
         } 
-        // Trường hợp 2: Chỉ đổi số tiền, giữ nguyên loại tiền -> Dùng lại tỷ giá cũ cho ổn định
+
         else {
             const rate = goal.creationExchangeRate || 1;
             goal.targetBaseAmount = newAmount * rate;
         }
 
-        // Cập nhật lại các trường hiển thị
         goal.targetOriginalAmount = newAmount;
         goal.targetCurrency = newCurrency;
     }
 
-    // 4. 🔥 TỰ ĐỘNG CHECK TRẠNG THÁI (Logic mới)
-    // Chỉ chạy auto-check nếu người dùng KHÔNG set status thủ công trong lần request này
     if (!newStatus) {
-        // Logic: Đã đủ tiền -> Completed
         if (goal.currentBaseAmount >= goal.targetBaseAmount) {
-            // Chỉ auto-complete nếu đang in_progress (đừng auto-complete cái đã failed)
             if (goal.status === 'in_progress') {
                 goal.status = 'completed';
             }
         } else {
-            // Logic: Chưa đủ tiền
-            // Nếu đang là completed (do user sửa target amount cao lên) -> Reopen về in_progress
             if (goal.status === 'completed') {
                 goal.status = 'in_progress';
             }
@@ -243,7 +212,6 @@ export const updateGoal = async (req: AuthRequest, res: Response) => {
     }
     const updatedGoal = await goal.save();
 
-    // 5. Log hành động
     await logAction(req, {
         action: "Update Goal",
         statusCode: 200,
@@ -257,11 +225,8 @@ export const updateGoal = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/* ============================================================
- * 🔹 Controller: Xóa mục tiêu
- * ============================================================ */
 export const deleteGoal = async (req: AuthRequest, res: Response) => {
-  const session = await mongoose.startSession(); // Dùng Transaction cho an toàn
+  const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
@@ -271,7 +236,6 @@ export const deleteGoal = async (req: AuthRequest, res: Response) => {
         return;
     } 
 
-    // 1. Tìm và xóa Goal
     const deletedGoal = await Goal.findOneAndDelete({ _id: req.params.id, userId }).session(session);
 
     if (!deletedGoal) {
@@ -280,20 +244,14 @@ export const deleteGoal = async (req: AuthRequest, res: Response) => {
         return;
     }
 
-    // 2. 🔥 XỬ LÝ GIAO DỊCH LIÊN QUAN (Quan trọng)
-    
-    // A. Với các giao dịch ĐÃ thực hiện: Giữ lại nhưng ngắt liên kết (set goalId = null)
-    // Để không làm mất lịch sử chi tiêu của user
     await Transaction.updateMany(
         { user: userId, goalId: deletedGoal._id },
-        { $set: { goalId: null, note: `(Mục tiêu "${deletedGoal.name}" đã bị xóa)` } } // Thêm note để user biết
+        { $set: { goalId: null, note: `(Mục tiêu "${deletedGoal.name}" đã bị xóa)` } } 
     ).session(session);
 
-    // B. Với các Recurring Template (Giao dịch định kỳ) đang trỏ vào Goal này:
-    // Cần HỦY hoặc CẬP NHẬT để nó không tiếp tục chạy vô định
     await Transaction.updateMany(
-        { user: userId, goalId: deletedGoal._id, isRecurring: true, date: null }, // Template recurring
-        { $set: { isRecurring: false, goalId: null } } // Tắt recurring luôn
+        { user: userId, goalId: deletedGoal._id, isRecurring: true, date: null }, 
+        { $set: { isRecurring: false, goalId: null } } 
     ).session(session);
 
     await session.commitTransaction();

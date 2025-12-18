@@ -28,9 +28,7 @@ export const updateAlertLevelAndNotify = async (
   message: string = ""
 ): Promise<void> => {
   try {
-    // 1. Nếu mức mới > mức cũ: GỬI THÔNG BÁO & UPDATE
     if (newLevel > oldLevel) {
-      // Update DB
       if (isCategory) {
         await Budget.updateOne(
           { _id: budgetId, "categories.category": categoryName },
@@ -40,20 +38,18 @@ export const updateAlertLevelAndNotify = async (
         await Budget.findByIdAndUpdate(budgetId, { alertLevel: newLevel });
       }
 
-      // Gửi Notification + Socket
-      // Type: 'budget_warning' (tổng) hoặc 'budget_category_warning' (danh mục)
       const type = isCategory ? "budget_category_warning" : "budget_warning";
       
       await createAndSendNotification(
         userId,
         type,
         message,
-        "/budget" // Link redirect
+        "/budget" 
       );
 
       console.log(`📢 [Budget Alert] Đã báo mức ${newLevel}% cho User ${userId} (${isCategory ? categoryName : "Tổng"})`);
     } 
-    // 2. Nếu mức mới < mức cũ: CHỈ UPDATE DB (Reset mức để lần sau báo lại)
+
     else if (newLevel < oldLevel) {
       if (isCategory) {
         await Budget.updateOne(
@@ -65,7 +61,7 @@ export const updateAlertLevelAndNotify = async (
       }
       console.log(`📉 [Budget Reset] Hạ mức từ ${oldLevel}% xuống ${newLevel}% cho User ${userId}`);
     }
-    // 3. Nếu bằng nhau: Không làm gì cả
+
   } catch (error) {
     console.error("❌ Lỗi khi cập nhật ngân sách/gửi thông báo:", error);
   }

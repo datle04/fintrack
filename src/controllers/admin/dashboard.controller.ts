@@ -9,7 +9,6 @@ export const getAdminDashboardStats = async (req: AuthRequest, res: Response) =>
   const userCount = await User.countDocuments();
   const transactionCount = await Transaction.countDocuments();
 
-  // TÍNH TỔNG DỰA TRÊN TỶ GIÁ ---
   const totalIncome = await Transaction.aggregate([
     { $match: { type: "income" } },
     {
@@ -22,7 +21,6 @@ export const getAdminDashboardStats = async (req: AuthRequest, res: Response) =>
     },
   ]);
 
-  // TÍNH TỔNG DỰA TRÊN TỶ GIÁ ---
   const totalExpense = await Transaction.aggregate([
     { $match: { type: "expense" } },
     {
@@ -46,8 +44,8 @@ export const getAdminDashboardStats = async (req: AuthRequest, res: Response) =>
 export const getMonthlyIncomeExpenseStats = async (req: AuthRequest, res: Response) => {
   const year = parseInt(req.query.year as string) || new Date().getFullYear();
 
-  const startOfYear = new Date(year, 0, 1);   // 1 Jan
-  const endOfYear = new Date(year, 11, 31, 23, 59, 59); // 31 Dec
+  const startOfYear = new Date(year, 0, 1);   
+  const endOfYear = new Date(year, 11, 31, 23, 59, 59); 
 
   const stats = await Transaction.aggregate([
     {
@@ -61,7 +59,6 @@ export const getMonthlyIncomeExpenseStats = async (req: AuthRequest, res: Respon
           month: { $month: "$date" }, 
           type: "$type",              
         },
-        // --- SỬA LỖI 3: TÍNH TỔNG DỰA TRÊN TỶ GIÁ ---
         total: {
           $sum: { $multiply: ["$amount", { $ifNull: ["$exchangeRate", 1] }] },
         },
@@ -83,11 +80,10 @@ export const getMonthlyIncomeExpenseStats = async (req: AuthRequest, res: Respon
       },
     },
     {
-      $sort: { _id: 1 }, // sắp xếp theo tháng
+      $sort: { _id: 1 },
     },
   ]);
 
-  // Đảm bảo có đủ 12 tháng
   const result = Array.from({ length: 12 }, (_, i) => {
     const found = stats.find((s) => s._id === i + 1);
     return {
@@ -110,7 +106,7 @@ export const getMonthlyTransactionCount = async (req: AuthRequest, res: Response
     const stats = await Transaction.aggregate([
       {
         $match: {
-          date: { $gte: startOfYear, $lte: endOfYear }, // 
+          date: { $gte: startOfYear, $lte: endOfYear }, 
         },
       },
       {
@@ -139,12 +135,8 @@ export const getMonthlyTransactionCount = async (req: AuthRequest, res: Response
   }
 };
 
-// =============================================
-// === CÁC HÀM API MỚI BỔ SUNG ===
-// =============================================
-
 /**
- * [MỚI] API Lấy số lượng người dùng đăng ký mới (7 ngày qua)
+ * API Lấy số lượng người dùng đăng ký mới (7 ngày qua)
  * GET /admin/dashboard/user-signups
  */
 export const getNewUserSignups = async (req: AuthRequest, res: Response) => {
@@ -155,7 +147,7 @@ export const getNewUserSignups = async (req: AuthRequest, res: Response) => {
     const signups = await User.aggregate([
       {
         $match: {
-          createdAt: { $gte: sevenDaysAgo }, // Chỉ lấy user tạo trong 7 ngày
+          createdAt: { $gte: sevenDaysAgo },
         },
       },
       {
@@ -165,7 +157,7 @@ export const getNewUserSignups = async (req: AuthRequest, res: Response) => {
         },
       },
       {
-        $sort: { _id: 1 }, // Sắp xếp theo ngày
+        $sort: { _id: 1 }, 
       },
     ]);
 
@@ -177,17 +169,17 @@ export const getNewUserSignups = async (req: AuthRequest, res: Response) => {
 };
 
 /**
- * [MỚI] API Lấy các log lỗi gần đây
+ * API Lấy các log lỗi gần đây
  * GET /admin/dashboard/recent-errors?limit=5
  */
 export const getRecentErrorLogs = async (req: AuthRequest, res: Response) => {
   try {
     const limit = parseInt(req.query.limit as string) || 5;
 
-    const logs = await Log.find({ level: "error" }) // Chỉ lấy log 'error'
-      .sort({ timestamp: -1 }) // Sắp xếp mới nhất lên đầu
+    const logs = await Log.find({ level: "error" }) 
+      .sort({ timestamp: -1 }) 
       .limit(limit)
-      .populate("user", "name email"); // Lấy thông tin user liên quan
+      .populate("user", "name email");
 
     res.json(logs);
   } catch (err) {
@@ -197,19 +189,17 @@ export const getRecentErrorLogs = async (req: AuthRequest, res: Response) => {
 };
 
 /**
- * [ĐÃ SỬA] API Thống kê người dùng hoạt động
+ * API Thống kê người dùng hoạt động
  * GET /admin/dashboard/active-users
  */
 export const getActiveUsersStats = async (req: AuthRequest, res: Response) => {
   try {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    // --- SỬA 1: Dùng đúng tên trường "userId" và "loginAt" ---
     const activeLast24h = await SessionModel.distinct("userId", {
       loginAt: { $gte: twentyFourHoursAgo }, 
     });
 
-    // --- SỬA 2: Dùng đúng tên trường "logoutAt" ---
     const currentlyOnline = await SessionModel.countDocuments({
       logoutAt: null, 
     });
@@ -226,7 +216,7 @@ export const getActiveUsersStats = async (req: AuthRequest, res: Response) => {
 };
 
 /**
- * [MỚI] API Lấy top danh mục chi tiêu toàn hệ thống
+ * API Lấy top danh mục chi tiêu toàn hệ thống
  * GET /admin/dashboard/top-categories?limit=5
  */
 export const getTopExpenseCategories = async (req: AuthRequest, res: Response) => {
@@ -235,20 +225,19 @@ export const getTopExpenseCategories = async (req: AuthRequest, res: Response) =
 
     const categories = await Transaction.aggregate([
       {
-        $match: { type: "expense" }, // Chỉ lấy giao dịch 'expense'
+        $match: { type: "expense" }, 
       },
       {
         $group: {
-          _id: "$category", // Nhóm theo danh mục
+          _id: "$category", 
           totalSpent: {
-            // Tính tổng đã quy đổi (như đã sửa)
             $sum: { $multiply: ["$amount", { $ifNull: ["$exchangeRate", 1] }] }, //
           },
-          count: { $sum: 1 }, // Đếm số lượng giao dịch
+          count: { $sum: 1 },
         },
       },
       {
-        $sort: { totalSpent: -1 }, // Sắp xếp theo tổng chi
+        $sort: { totalSpent: -1 }, 
       },
       {
         $limit: limit,

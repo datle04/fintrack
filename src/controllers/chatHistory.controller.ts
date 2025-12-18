@@ -14,7 +14,6 @@ export const saveChatMessage = async (req: AuthRequest, res: Response) => {
 
     let chat = await ChatHistory.findOne({ user: userId });
 
-    // Nếu chưa có lịch sử chat thì tạo mới
     if (!chat) {
       chat = new ChatHistory({
         user: userId,

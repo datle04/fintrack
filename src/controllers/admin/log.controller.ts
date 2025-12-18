@@ -1,4 +1,3 @@
-// src/controllers/admin/log.controller.ts
 import { Request, Response } from "express";
 import Log from "../../models/Log"; //
 import { AuthRequest } from "../../middlewares/requireAuth"; //
@@ -9,8 +8,7 @@ export const getAllLogs = async (req: AuthRequest, res: Response) => {
   const limit = parseInt(req.query.limit as string) || 20;
   const skip = (page - 1) * limit;
 
-  // Bộ lọc (Filters)
-  const { level, action, method, startDate, endDate, userId } = req.query; // <-- 1. LẤY THÊM userId TỪ QUERY
+  const { level, action, method, startDate, endDate, userId } = req.query; 
 
   const filter: any = {};
 
@@ -18,15 +16,12 @@ export const getAllLogs = async (req: AuthRequest, res: Response) => {
     filter.level = level;
   }
   if (action) {
-    filter.action = { $regex: action, $options: "i" }; // Tìm kiếm không phân biệt hoa thường
+    filter.action = { $regex: action, $options: "i" }; 
   }
   if (method) {
     filter.method = method;
   }
-
-  // --- 2. THÊM LOGIC LỌC THEO USERID ---
   if (userId) {
-    // Đảm bảo userId là một ObjectId hợp lệ trước khi lọc
     if (mongoose.Types.ObjectId.isValid(userId as string)) {
       filter.userId = userId; //
     } else {
@@ -34,7 +29,6 @@ export const getAllLogs = async (req: AuthRequest, res: Response) => {
       return;
     }
   }
-  // ------------------------------------
 
   if (startDate && endDate) {
     filter.timestamp = {

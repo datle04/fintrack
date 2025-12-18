@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { SessionModel } from "../models/Session"; // Đảm bảo đường dẫn đúng
+import { SessionModel } from "../models/Session";
 import dotenv from "dotenv";
 
 dotenv.config();

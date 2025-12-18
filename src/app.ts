@@ -1,4 +1,3 @@
-// app.ts
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -22,7 +21,6 @@ import chatProxyRoutes from './routes/chatProxy.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import { xssMiddleware } from './middlewares/xss';
 import { generalLimiter } from './middlewares/rateLimiter';
-// import cronRoutes from './routes/cron.routes';
 
 const app = express();
 // ======production==========

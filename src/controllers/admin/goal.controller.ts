@@ -1,10 +1,9 @@
-// src/controllers/admin/goal.controller.ts
 import { Response } from "express";
 import mongoose from "mongoose";
-import Goal from "../../models/Goal"; //
-import Transaction from "../../models/Transaction"; //
-import { AuthRequest } from "../../middlewares/requireAuth"; //
-import { logAction } from "../../utils/logAction"; //
+import Goal from "../../models/Goal"; 
+import Transaction from "../../models/Transaction"; 
+import { AuthRequest } from "../../middlewares/requireAuth"; 
+import { logAction } from "../../utils/logAction"; 
 import Notification from "../../models/Notification";
 import { createAndSendNotification } from "../../services/notification.service";
 import { recalculateGoalProgress } from "../../services/goal.service";
@@ -67,7 +66,6 @@ export const adminUpdateGoal = async (req: AuthRequest, res: Response) => {
   } = req.body;
 
   try {
-    // Validate Reason
     if (!reason || reason.trim().length === 0) {
         res.status(400).json({ message: "Admin bắt buộc phải nhập lý do chỉnh sửa." });
         return;
@@ -126,7 +124,6 @@ export const adminUpdateGoal = async (req: AuthRequest, res: Response) => {
         targetId: goalId,
         reason: reason,
         changes: changes,
-        // Lưu lại snapshot dữ liệu gốc quan trọng để đối chứng
         snapshot: {
             name: originalGoal.name,
             amount: originalGoal.targetOriginalAmount,
@@ -174,7 +171,6 @@ export const adminDeleteGoal = async (req: AuthRequest, res: Response) => {
 
     await Goal.findByIdAndDelete(goalId).session(session);
 
-    // XỬ LÝ SIDE-EFFECTS (Bảo vệ dữ liệu Transaction)
 
     await Transaction.updateMany(
         { goalId: goalId },
@@ -185,10 +181,8 @@ export const adminDeleteGoal = async (req: AuthRequest, res: Response) => {
         }
     ).session(session);
 
-    // Với các Giao dịch định kỳ (Recurring Templates):
-    // Phải TẮT chúng đi, nếu không nó sẽ tiếp tục tạo giao dịch rác không có đích đến
     await Transaction.updateMany(
-        { goalId: goalId, isRecurring: true, date: null }, // Template
+        { goalId: goalId, isRecurring: true, date: null },
         { 
             $set: { 
                 isRecurring: false, 
@@ -200,7 +194,6 @@ export const adminDeleteGoal = async (req: AuthRequest, res: Response) => {
 
     await session.commitTransaction();
 
-    // 5. GỬI THÔNG BÁO (Sau khi commit thành công)
     const message = `Admin đã xóa mục tiêu: "${goalToDelete.name}".
                      Lý do: ${reason}.
                      Các giao dịch liên quan đã được ngắt kết nối khỏi mục tiêu này.`;
@@ -212,7 +205,6 @@ export const adminDeleteGoal = async (req: AuthRequest, res: Response) => {
       "/goal"
     );
 
-    // GHI LOG (Kèm Snapshot để khôi phục)
     await logAction(req, {
       action: "Admin Delete Goal",
       statusCode: 200,

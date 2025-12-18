@@ -1,4 +1,3 @@
-// utils/browser.ts
 import puppeteer, { Browser } from 'puppeteer';
 
 let browserInstance: Browser | null = null;
@@ -14,7 +13,6 @@ export const getBrowser = async (): Promise<Browser> => {
   console.log('🚀 Khởi động trình duyệt Puppeteer (chỉ một lần)...');
   browserInstance = await puppeteer.launch({
     headless: true,
-    // Thêm 'args' để tối ưu cho môi trường production/Docker
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -41,5 +39,4 @@ export const closeBrowser = async () => {
   }
 };
 
-// Khởi động trình duyệt ngay khi server bắt đầu
 getBrowser();

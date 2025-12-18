@@ -1,7 +1,6 @@
 import Joi from 'joi';
 import { objectId } from './custom.validation';
 
-// 1. Schema Tạo mới (Giữ nguyên cái cũ của bạn)
 export const createTransactionSchema = Joi.object({
   type: Joi.string().valid('income', 'expense').required(),
   amount: Joi.number().greater(0).required(),
@@ -10,12 +9,7 @@ export const createTransactionSchema = Joi.object({
   exchangeRate: Joi.number().min(0).default(1),
   note: Joi.string().allow('').max(500),
   date: Joi.date().iso(),
-  
-  // 👇 SỬA DÒNG NÀY:
-  // Thay vì bắt buộc là array string (URL), ta dùng .strip()
-  // Lý do: Ảnh nằm trong req.files (Multer xử lý), Joi không cần quan tâm field này trong body.
   receiptImages: Joi.any().strip(), 
-
   isRecurring: Joi.boolean().default(false),
   recurringDay: Joi.number().min(1).max(31).when('isRecurring', {
     is: true,
@@ -25,7 +19,6 @@ export const createTransactionSchema = Joi.object({
   goalId: Joi.string().custom(objectId).allow(null),
 });
 
-// 2. Schema Cập nhật (Update) - Tự động tạo từ Create
 export const updateTransactionSchema = createTransactionSchema
   .fork(
     [
@@ -35,7 +28,6 @@ export const updateTransactionSchema = createTransactionSchema
     (schema) => schema.optional()
   )
   .keys({
-    // 1. Cho phép gửi danh sách URL ảnh cũ (nếu có)
     existingImages: Joi.alternatives().try(
       Joi.array().items(Joi.string()), 
       Joi.string()
@@ -48,7 +40,6 @@ export const updateTransactionSchema = createTransactionSchema
   .min(1);
 
 export const adminUpdateTransactionSchema = updateTransactionSchema.keys({
-  // Ghi đè trường reason thành BẮT BUỘC
   reason: Joi.string().required().min(5).messages({
     'any.required': 'Admin bắt buộc phải nhập lý do chỉnh sửa',
     'string.empty': 'Lý do không được để trống',

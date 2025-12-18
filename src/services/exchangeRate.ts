@@ -1,18 +1,14 @@
-// src/services/exchangeRate.service.ts
-
 import axios from 'axios';
-// ⚠️ Thay thế bằng đường dẫn thực tế của Redis client trong Backend của bạn
 import { redisClient } from '../utils/redisClient'; 
 
 // Constants
-const BASE_CURRENCY_APP = 'VND'; // Tiền tệ cơ sở của ứng dụng
-const RATES_CACHE_KEY = 'EXCHANGE_RATES:LATEST'; // Key để lưu tỷ giá trong Redis
-const CACHE_TTL_SECONDS = 3600; // 1 giờ
+const BASE_CURRENCY_APP = 'VND'; 
+const RATES_CACHE_KEY = 'EXCHANGE_RATES:LATEST'; 
+const CACHE_TTL_SECONDS = 3600; 
 
 const OPEN_EXCHANGE_RATES_APP_ID = process.env.OPEN_EXCHANGE_RATES_APP_ID; 
 const API_URL = 'https://openexchangerates.org/api'; 
 
-// Kiểu dữ liệu cho tỷ giá (OER luôn dùng USD làm Base)
 type Rates = { [key: string]: number };
 
 /**
@@ -20,8 +16,6 @@ type Rates = { [key: string]: number };
  * Luôn trả về tỷ giá dựa trên USD.
  */
 const fetchLatestRates = async (): Promise<Rates> => {
-    
-    // 1. KIỂM TRA CACHE
     try {
         const cachedRates = await redisClient.get(RATES_CACHE_KEY);
         if (cachedRates) {
@@ -30,13 +24,10 @@ const fetchLatestRates = async (): Promise<Rates> => {
         }
     } catch (cacheError) {
         console.error('Lỗi khi truy xuất Redis Cache:', cacheError);
-        // Bỏ qua lỗi cache và tiếp tục gọi API nếu Redis lỗi
     }
     
-    // 2. GỌI API (Cache Miss)
     if (!OPEN_EXCHANGE_RATES_APP_ID) {
         console.error("OPEN_EXCHANGE_RATES_APP_ID is not set. Falling back to dummy rates.");
-        // Cung cấp tỷ giá giả lập nếu không có API key
         return { 'VND': 25000, 'USD': 1, 'EUR': 0.93, 'JPY': 150 };
     }
     
@@ -52,7 +43,6 @@ const fetchLatestRates = async (): Promise<Rates> => {
 
         const rates: Rates = response.data.rates;
 
-        // 3. LƯU VÀO CACHE
         try {
             await redisClient.set(
                 RATES_CACHE_KEY, 
@@ -88,18 +78,16 @@ export const getExchangeRateToVND = async (fromCurrency: string): Promise<number
     if (uppercaseFrom === BASE_CURRENCY_APP) {
         return 1;
     }
-    
-    // Gọi hàm đã có logic cache
+
     const rates = await fetchLatestRates();
     
-    const rateToVND = rates[BASE_CURRENCY_APP]; // Ví dụ: 25000
-    const rateFromCurrency = rates[uppercaseFrom]; // Ví dụ: 1 (cho USD)
+    const rateToVND = rates[BASE_CURRENCY_APP];
+    const rateFromCurrency = rates[uppercaseFrom]; 
     
     if (!rateToVND || !rateFromCurrency) {
         throw new Error(`Không tìm thấy tỷ giá hối đoái cho ${fromCurrency} hoặc ${BASE_CURRENCY_APP}.`);
     }
 
-    // Tỷ giá (USD -> VND) = Rate[VND] / Rate[USD] = 25000 / 1 = 25000
     const calculatedRate = rateToVND / rateFromCurrency;
 
     return calculatedRate;
@@ -123,11 +111,10 @@ export const getConversionRate = async (baseCurrency: string, targetCurrency: st
         return 1.0;
     }
 
-    // Lấy tỷ giá đã cache (Base là USD)
     const rates = await fetchLatestRates();
 
-    const baseRate = rates[upperBase]; // Tỷ giá của VND (ví dụ: 25000)
-    const targetRate = rates[upperTarget]; // Tỷ giá của USD (ví dụ: 1)
+    const baseRate = rates[upperBase];
+    const targetRate = rates[upperTarget];
 
     if (!baseRate) {
         throw new Error(`Không tìm thấy tỷ giá cho tiền tệ cơ sở: ${baseCurrency}`);
@@ -136,15 +123,11 @@ export const getConversionRate = async (baseCurrency: string, targetCurrency: st
         throw new Error(`Không tìm thấy tỷ giá cho tiền tệ mục tiêu: ${targetCurrency}`);
     }
 
-    // Logic: Tỷ giá (VND -> USD) = Tỷ giá[USD] / Tỷ giá[VND]
-    // Ví dụ: 1 / 25000 = 0.00004
     const conversionRate = targetRate / baseRate;
 
     return conversionRate;
 };
 
-// (Bạn có thể giữ lại hàm getExchangeRate cũ nếu muốn,
-// nhưng tôi đã đổi tên nó thành getExchangeRateToVND cho rõ ràng)
 export const getExchangeRate = getExchangeRateToVND;
 
 export const SUPPORTED_CURRENCIES = ['VND', 'USD', 'EUR', 'JPY', 'GBP', 'AUD'];

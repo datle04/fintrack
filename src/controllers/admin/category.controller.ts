@@ -1,7 +1,6 @@
-// src/controllers/admin/category.controller.ts
 import { Request, Response } from "express";
 import Transaction from "../../models/Transaction";
-import { AuthRequest } from "../../middlewares/requireAuth"; // Nên dùng AuthRequest vì đây là route admin
+import { AuthRequest } from "../../middlewares/requireAuth"; 
 
 export const getCategorySummary = async (req: AuthRequest, res: Response) => {
   try {

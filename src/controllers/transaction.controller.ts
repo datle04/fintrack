@@ -18,12 +18,9 @@ export const processTransactionData = async (data: any) => {
     let exchangeRate = 1;
 
     if (transactionCurrency !== 'VND') {
-        // Lấy tỷ giá hối đoái (fromCurrency -> VND)
         exchangeRate = await getExchangeRate(transactionCurrency);
     }
-    
-    // Tạo đối tượng dữ liệu giao dịch mới (chỉ dùng cho logic lưu)
-    // Lưu ý: amount vẫn là giá trị gốc, tỷ giá được lưu riêng.
+
     return {
         ...data,
         currency: transactionCurrency,
@@ -36,7 +33,7 @@ export const processTransactionData = async (data: any) => {
 export const createTransaction = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
 
-      console.log("📂 Files received:", req.files); // 👈 THÊM DÒNG NÀY
+      console.log("📂 Files received:", req.files);
       console.log("📝 Body received:", req.body);
 
         const {
@@ -47,7 +44,7 @@ export const createTransaction = async (req: AuthRequest, res: Response): Promis
             date,
             recurringDay,
             isRecurring,
-            currency, // <-- Lấy trường mới từ body
+            currency, 
             goalId,
         } = req.body;
 
@@ -56,15 +53,12 @@ export const createTransaction = async (req: AuthRequest, res: Response): Promis
             return;
         }
 
-        // 1. XỬ LÝ ĐA TIỀN TỆ: Lấy tỷ giá và currency cuối cùng
         const { exchangeRate, currency: finalCurrency } = await processTransactionData({ currency, amount });
         
-        // 2. IMAGE UPLOAD
         let receiptImages: string[] = [];
         if (req.files && Array.isArray(req.files)) {
             const uploadPromises = (req.files as Express.Multer.File[]).map(file => {
                 const base64 = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
-                // Assuming cloudinary.uploader.upload and uuid() are imported
                 return cloudinary.uploader.upload(base64, {
                     folder: 'fintrack_receipts',
                     public_id: `receipt-${uuid()}`
@@ -78,7 +72,6 @@ export const createTransaction = async (req: AuthRequest, res: Response): Promis
         const isRecurringBool = isRecurring === 'true' || isRecurring === true;
 
         if (isRecurringBool) {
-            // 3. TẠO GIAO DỊCH ĐỊNH KỲ (UPDATED)
             if (!recurringDay || recurringDay < 1 || recurringDay > 31) {
                 res.status(400).json({ message: "Ngày định kỳ (recurringDay) không hợp lệ" });
                 return;
@@ -86,7 +79,6 @@ export const createTransaction = async (req: AuthRequest, res: Response): Promis
 
             const recurringId = uuid();
 
-            // Các trường chung cho Template và First Transaction
             const commonFields = {
                 user: req.userId,
                 amount,
@@ -102,23 +94,17 @@ export const createTransaction = async (req: AuthRequest, res: Response): Promis
                 goalId: goalId || null
             };
 
-            // a. Template Transaction (date: undefined)
             const templateTx = await Transaction.create({ ...commonFields, date: undefined });
 
-            // b. First Transaction (sử dụng date truyền vào)
             const firstTx = await Transaction.create({ 
                 ...commonFields, 
                 date: new Date(date) 
             });
 
-            // 🔥 SỬA ĐOẠN NÀY: Thay updateGoalProgress bằng recalculateGoalProgress
-             // Chỉ cập nhật cho giao dịch đầu tiên (firstTx) vì nó có ngày thực tế
              if (firstTx.goalId) {
                 await recalculateGoalProgress(firstTx.goalId);
              }
 
-            // --- 5. KIỂM TRA CẢNH BÁO NGÂN SÁCH --- // <-- THÊM MỚI
-            // Chỉ kiểm tra cho giao dịch đầu tiên (có thật)
             await checkBudgetAlertForUser(req.userId!); 
 
             await logAction(req, { action: "Created Recurring Transaction", statusCode: 201, description: `Tạo giao dịch định kỳ ngày ${recurringDay}` });
@@ -127,7 +113,6 @@ export const createTransaction = async (req: AuthRequest, res: Response): Promis
             return;
         }
 
-        // 4. TẠO GIAO DỊCH THÔNG THƯỜNG (UPDATED)
         if (!date) {
             res.status(400).json({ message: "Giao dịch thường cần trường `date`" });
             return;
@@ -147,12 +132,10 @@ export const createTransaction = async (req: AuthRequest, res: Response): Promis
             goalId: goalId || null,
         });
 
-       // 🔥 SỬA ĐOẠN NÀY: Dùng tính toán lại toàn bộ
         if (tx.goalId) {
             await recalculateGoalProgress(tx.goalId);
         }
 
-        // --- 5. KIỂM TRA CẢNH BÁO NGÂN SÁCH --- // <-- THÊM MỚI
         await checkBudgetAlertForUser(req.userId!);
 
         await logAction(req, { action: "Created Transaction", statusCode: 201, description: `Tạo giao dịch thường ${type} - ${category}` });
@@ -169,7 +152,6 @@ export const createTransaction = async (req: AuthRequest, res: Response): Promis
 // GET ALL
 export const getTransactions = async (req: AuthRequest, res: Response) => {
   try {
-    // 📦 Lấy các tham số từ query
     const { 
       page = 1, 
       limit = 10, 
@@ -180,15 +162,12 @@ export const getTransactions = async (req: AuthRequest, res: Response) => {
       endDate 
     } = req.query;
 
-    // 🧭 Xây dựng bộ lọc cơ bản
     const filter: any = { user: req.userId };
 
     if (type) filter.type = type;
     if (category) filter.category = category;
     if (keyword) filter.note = { $regex: keyword, $options: "i" };
 
-    // 🗓️ Lọc theo khoảng thời gian
-    // Nếu không truyền thì mặc định lấy tháng hiện tại
     let start: Date;
     let end: Date;
 
@@ -204,10 +183,8 @@ export const getTransactions = async (req: AuthRequest, res: Response) => {
 
     filter.date = { $gte: start, $lte: end };
 
-    // 📜 Phân trang
     const skip = (Number(page) - 1) * Number(limit);
 
-    // 🧮 Thực hiện song song 2 truy vấn
     const [transactions, total] = await Promise.all([
       Transaction.find(filter)
         .sort({ date: -1 })
@@ -217,7 +194,6 @@ export const getTransactions = async (req: AuthRequest, res: Response) => {
       Transaction.countDocuments(filter),
     ]);
 
-    // 📊 Tổng thu & chi trong khoảng thời gian
     const summary = await Transaction.aggregate([
       { $match: filter },
       {
@@ -233,7 +209,6 @@ export const getTransactions = async (req: AuthRequest, res: Response) => {
     const totalExpense =
       summary.find((s) => s._id === "expense")?.totalAmount || 0;
 
-    // 📦 Trả kết quả
     res.json({
       data: transactions,
       total,
@@ -259,25 +234,23 @@ export const getTransactionsByMonth = async (req: AuthRequest, res: Response) =>
   try {
     const { month, year } = req.query;
 
-    // Ép kiểu an toàn hơn
     const monthNum = Number(month);
     const yearNum = Number(year);
 
-    // Bắt buộc phải có cả tháng và năm để lọc cho chính xác
     if (!month || !year || isNaN(monthNum) || isNaN(yearNum)) {
       res.status(400).json({ message: 'Thiếu hoặc sai định dạng month/year' });
       return;
     }
 
     const startOfMonth = new Date(yearNum, monthNum - 1, 1);
-    const endOfMonth = new Date(yearNum, monthNum, 1); // đầu tháng sau
+    const endOfMonth = new Date(yearNum, monthNum, 1); 
 
     const filter = {
       user: req.userId,
       date: { $gte: startOfMonth, $lt: endOfMonth },
     };
 
-    const transactions = await Transaction.find(filter).sort({ date: 1 }); // sort tăng dần để thống kê đẹp hơn
+    const transactions = await Transaction.find(filter).sort({ date: 1 }); 
 
     res.json({
       data: transactions,
@@ -295,25 +268,19 @@ export const getTransactionsByMonth = async (req: AuthRequest, res: Response) =>
 // UPDATE
 export const updateTransaction = async (req: AuthRequest, res: Response): Promise<any> => {
     try {
-      console.log("📂 Files received:", req.files); // 👈 THÊM DÒNG NÀY
+      console.log("📂 Files received:", req.files); 
       console.log("📝 Body received:", req.body);
       
         const { id } = req.params;
         const userId = req.userId;
-        
-        // Dữ liệu từ Body (đã được Joi validate, các trường có thể là undefined)
+
         const updates = req.body;
 
-        // 1. Tìm giao dịch CŨ (Bắt buộc phải có để merge dữ liệu)
         const oldTx = await Transaction.findOne({ _id: id, user: userId });
         if (!oldTx) {
             return res.status(404).json({ message: "Giao dịch không tồn tại!" });
         }
 
-        // ---------------------------------------------------------
-        // 2. LOGIC XỬ LÝ TIỀN TỆ & DATA (Merge cũ và mới)
-        // ---------------------------------------------------------
-        // Vì processTransactionData cần đủ fields để tính tỷ giá, ta phải lấy từ oldTx nếu updates không có
         const dataToProcess = {
             amount: updates.amount !== undefined ? updates.amount : oldTx.amount,
             currency: updates.currency || oldTx.currency,
@@ -323,28 +290,20 @@ export const updateTransaction = async (req: AuthRequest, res: Response): Promis
             note: updates.note !== undefined ? updates.note : oldTx.note,
             isRecurring: updates.isRecurring !== undefined ? updates.isRecurring : oldTx.isRecurring,
             recurringDay: updates.recurringDay || oldTx.recurringDay,
-            goalId: updates.goalId !== undefined ? updates.goalId : oldTx.goalId // Lưu ý: goalId có thể là null
+            goalId: updates.goalId !== undefined ? updates.goalId : oldTx.goalId 
         };
 
-        // Gọi helper để chuẩn hóa dữ liệu (tính toán exchangeRate mới nếu date/currency đổi)
         const processedData = await processTransactionData(dataToProcess);
 
-        // ---------------------------------------------------------
-        // 3. XỬ LÝ ẢNH (Chỉ chạy khi có yêu cầu sửa ảnh)
-        // ---------------------------------------------------------
-        let finalImages = oldTx.receiptImage; // Mặc định giữ nguyên ảnh cũ
+        let finalImages = oldTx.receiptImage;
 
-        // Kiểm tra xem user có ý định sửa ảnh không?
-        // (Nếu gửi existingImages hoặc có file upload -> tức là muốn sửa)
         if (updates.existingImages !== undefined || (req.files && Array.isArray(req.files) && req.files.length > 0)) {
             
-            // Lọc ảnh cũ muốn giữ lại
             let keepImages: string[] = [];
             if (updates.existingImages) {
                 keepImages = Array.isArray(updates.existingImages) ? updates.existingImages : [updates.existingImages];
             }
 
-            // Upload ảnh mới (nếu có)
             let newUploadedImages: string[] = [];
             if (req.files && Array.isArray(req.files)) {
                 const uploadPromises = (req.files as Express.Multer.File[]).map(file => {
@@ -358,44 +317,30 @@ export const updateTransaction = async (req: AuthRequest, res: Response): Promis
                 newUploadedImages = results.map(result => result.secure_url);
             }
 
-            // Gộp lại
             finalImages = [...keepImages, ...newUploadedImages];
         }
 
-        // ---------------------------------------------------------
-        // 4. CHUẨN BỊ PAYLOAD UPDATE
-        // ---------------------------------------------------------
-        // Logic check Recurring
         const isRecurringBool = String(processedData.isRecurring) === "true";
         if (isRecurringBool && (!processedData.recurringDay || processedData.recurringDay < 1 || processedData.recurringDay > 31)) {
              return res.status(400).json({ message: "Ngày định kỳ không hợp lệ" });
         }
 
         const updateFields = {
-            ...processedData, // Bao gồm amount, currency, exchangeRate, category... đã xử lý
+            ...processedData, 
             receiptImage: finalImages,
             date: processedData.date ? new Date(processedData.date) : undefined,
             isRecurring: isRecurringBool,
             recurringDay: isRecurringBool ? processedData.recurringDay : undefined,
-            // GoalId đã được xử lý trong processedData (bao gồm cả null)
         };
 
-        // ---------------------------------------------------------
-        // 5. CẬP NHẬT DATABASE
-        // ---------------------------------------------------------
         const updatedTx = await Transaction.findOneAndUpdate(
             { _id: id, user: userId },
-            { $set: updateFields }, // Chỉ update các trường có giá trị
+            { $set: updateFields }, 
             { new: true }
         );
 
         if (!updatedTx) return res.status(404).json({ message: "Lỗi cập nhật (không tìm thấy sau khi query)" });
 
-        // ---------------------------------------------------------
-        // 6. XỬ LÝ SIDE-EFFECTS (Goal & Budget) - TỐI ƯU HÓA
-        // ---------------------------------------------------------
-        
-        // Chỉ chạy tính toán nặng nề nều số tiền hoặc Goal thay đổi
         const isFinancialChange = 
             oldTx.amount !== updatedTx.amount || 
             oldTx.currency !== updatedTx.currency ||
@@ -404,7 +349,6 @@ export const updateTransaction = async (req: AuthRequest, res: Response): Promis
         if (isFinancialChange) {
             console.log(`🔄 Phát hiện thay đổi tài chính giao dịch ${id}, đang tính toán lại Goal/Budget...`);
 
-            // A. Cập nhật Goal (Logic thông minh: Cả Goal cũ và Goal mới)
             const goalIdsToUpdate = new Set<string>();
             if (oldTx.goalId) goalIdsToUpdate.add(oldTx.goalId.toString());
             if (updatedTx.goalId) goalIdsToUpdate.add(updatedTx.goalId.toString());
@@ -415,13 +359,11 @@ export const updateTransaction = async (req: AuthRequest, res: Response): Promis
                 );
             }
 
-            // B. Cảnh báo ngân sách
             await checkBudgetAlertForUser(userId!); 
         } else {
             console.log(`ℹ️ Giao dịch ${id} chỉ cập nhật thông tin phụ (Note/Image), bỏ qua tính toán lại.`);
         }
 
-        // Log hành động
         await logAction(req, { 
             action: "Update Transaction", 
             statusCode: 200, 
@@ -443,7 +385,6 @@ export const deleteTransaction = async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const userId = req.userId;
 
-    // 1. Tìm giao dịch trước để lấy goalId (quan trọng)
     const tx = await Transaction.findOne({ _id: id, user: userId });
 
     if (!tx) {
@@ -451,22 +392,16 @@ export const deleteTransaction = async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    const goalId = tx.goalId; // Lưu lại ID mục tiêu
+    const goalId = tx.goalId; 
 
-    // 3. Xóa giao dịch
     await Transaction.deleteOne({ _id: id });
 
-    // 4. 🔥 TÍNH TOÁN LẠI GOAL (FULL RECALCULATION)
-    // Vì giao dịch đã bị xóa khỏi DB, hàm này sẽ tính tổng các giao dịch CÒN LẠI
-    // => Kết quả tự động giảm đi đúng bằng số tiền vừa xóa.
     if (goalId) {
       await recalculateGoalProgress(goalId);
     }
 
-    // 5. Cập nhật trạng thái ngân sách
     await checkBudgetAlertForUser(userId!);
 
-    // 6. Log & Response
     await logAction(req, {
       action: "Delete Transaction",
       statusCode: 200,
@@ -494,13 +429,11 @@ export const getActiveRecurringTransactions = async (req: AuthRequest, res: Resp
   try {
     const { includeGenerated = "false" } = req.query;
 
-    // 1️⃣ Lọc tất cả recurring còn hoạt động (có recurringId hoặc isRecurring)
     const filter: any = {
       user: req.userId,
       isRecurring: true,
     };
 
-    // 2️⃣ Nếu không muốn lấy các bản generated, chỉ lấy template (date: null hoặc undefined)
     if (includeGenerated === "false") {
       filter.$or = [{ date: null }, { date: { $exists: false } }];
     }
@@ -509,7 +442,6 @@ export const getActiveRecurringTransactions = async (req: AuthRequest, res: Resp
       .sort({ createdAt: -1 })
       .lean();
 
-    // 3️⃣ Gom nhóm theo recurringId (để dễ hiển thị ở frontend)
     const grouped = recurringTxs.reduce((acc: Record<string, any[]>, tx) => {
       const key = tx.recurringId || tx._id.toString();
       if (!acc[key]) acc[key] = [];
@@ -540,9 +472,8 @@ export const getActiveRecurringTransactions = async (req: AuthRequest, res: Resp
 export const cancelRecurringTransaction = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const { deleteAll } = req.query; // deleteAll = "true" hoặc "false"
+    const { deleteAll } = req.query; 
 
-    // 1. Tìm giao dịch hiện tại để lấy recurringId
     const tx = await Transaction.findOne({ _id: id, user: req.userId });
     if (!tx) {
       res.status(404).json({ message: "Không tìm thấy giao dịch" });
@@ -554,26 +485,18 @@ export const cancelRecurringTransaction = async (req: AuthRequest, res: Response
       return;
     }
 
-    // =========================================================
-    // TRƯỜNG HỢP 1: XÓA TẤT CẢ (QUÁ KHỨ + TƯƠNG LAI + TEMPLATE)
-    // =========================================================
     if (deleteAll === "true") {
-      // a. Tìm tất cả các Goal ID bị ảnh hưởng trước khi xóa
-      // (Dùng distinct để lấy danh sách Goal ID duy nhất liên quan đến chuỗi này)
       const relatedGoalIds = await Transaction.distinct("goalId", {
         user: req.userId,
         recurringId: tx.recurringId,
-        goalId: { $ne: null } // Chỉ lấy cái nào có goalId
+        goalId: { $ne: null }
       });
 
-      // b. Xóa tất cả giao dịch
       const deleted = await Transaction.deleteMany({
         user: req.userId,
         recurringId: tx.recurringId,
       });
 
-      // c. 🔥 TÍNH TOÁN LẠI GOAL (Recalculate)
-      // Chạy vòng lặp update lại tiến độ cho các Goal bị ảnh hưởng
       if (relatedGoalIds.length > 0) {
           for (const gId of relatedGoalIds) {
             await recalculateGoalProgress(gId);
@@ -592,38 +515,24 @@ export const cancelRecurringTransaction = async (req: AuthRequest, res: Response
       return;
     }
 
-    // =========================================================
-    // TRƯỜNG HỢP 2: CHỈ DỪNG ĐỊNH KỲ (NGẮT TƯƠNG LAI)
-    // =========================================================
-    
-    // a. Xóa bản ghi TEMPLATE (Bản ghi dùng để clone, thường không có date hoặc date ảo)
-    // Bản template là bản có recurringId khớp VÀ (không có date HOẶC là bản ghi gốc ban đầu)
-    // Để an toàn, ta xóa bản ghi nào có recurringId khớp mà date = null/undefined (nếu logic tạo của bạn là thế)
-    // Hoặc đơn giản hơn: Ta update các bản đã diễn ra thành "thường", và xóa bản template.
-
-    // Logic xử lý sạch sẽ nhất:
-    // Bước 1: Xóa bản Template (để Cronjob không tìm thấy nữa -> Dừng tương lai)
     await Transaction.deleteOne({
         user: req.userId,
         recurringId: tx.recurringId,
-        date: { $exists: false } // Giả sử template không có trường date
+        date: { $exists: false } 
     });
 
-    // Bước 2: Update các giao dịch QUÁ KHỨ (đã xảy ra)
-    // Ngắt kết nối recurring để chúng trở thành giao dịch thường độc lập
     await Transaction.updateMany(
       { 
         user: req.userId, 
         recurringId: tx.recurringId,
-        date: { $exists: true } // Chỉ update các giao dịch thực tế
+        date: { $exists: true } 
       },
       { 
         $set: { 
             isRecurring: false, 
-            // recurringId: undefined // Có thể giữ lại recurringId để trace lịch sử nếu muốn, hoặc xóa đi tùy bạn
-            note: `(Đã dừng định kỳ) ${tx.note || ""}` // Optional: Đánh dấu note
+            note: `(Đã dừng định kỳ) ${tx.note || ""}` 
         },
-        $unset: { recurringId: 1 } // Xóa trường recurringId để ngắt hoàn toàn
+        $unset: { recurringId: 1 } 
       }
     );
 
@@ -727,7 +636,6 @@ export const triggerRecurringTest = async (req: Request, res: Response) => {
 
 export const getTopTransactions = async (req: AuthRequest, res: Response) => {
   try {
-    // 📦 Lấy các tham số từ query (Giữ nguyên)
     const {
       limit = 10,
       type,
@@ -736,7 +644,6 @@ export const getTopTransactions = async (req: AuthRequest, res: Response) => {
       order = "desc",
     } = req.query;
 
-    // 🗓️ Lọc theo khoảng thời gian (Giữ nguyên)
     let start: Date;
     let end: Date;
 
@@ -750,34 +657,25 @@ export const getTopTransactions = async (req: AuthRequest, res: Response) => {
       end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     }
 
-    // --- BẮT ĐẦU SỬA LỖI ---
-
-    // 🧭 Xây dựng bộ lọc cho $match (PHẢI DÙNG ObjectId)
     const matchFilter: any = {
-      user: new mongoose.Types.ObjectId(req.userId), // <-- 2. ÉP KIỂU SANG OBJECTID
+      user: new mongoose.Types.ObjectId(req.userId), 
       date: { $gte: start, $lte: end },
     };
     if (type) matchFilter.type = type;
 
-    // 🧭 Xây dựng bộ lọc cho countDocuments (Dùng string, Mongoose tự ép kiểu)
-    // (Việc này an toàn hơn là truyền $match filter vào countDocuments)
     const countFilter: any = {
       user: req.userId,
       date: { $gte: start, $lte: end },
     };
     if (type) countFilter.type = type;
 
-    // --- KẾT THÚC SỬA LỖI ---
-
-    // 🧮 Thực hiện song song 2 truy vấn
     const sortOrder = order === "desc" ? -1 : 1;
     const numLimit = Number(limit);
 
     const [transactions, total] = await Promise.all([
-      // 1. Truy vấn Aggregation (Dùng matchFilter)
       Transaction.aggregate([
         {
-          $match: matchFilter, // <-- 3. Sử dụng filter đã ép kiểu
+          $match: matchFilter, 
         },
         {
           $addFields: {
@@ -793,12 +691,9 @@ export const getTopTransactions = async (req: AuthRequest, res: Response) => {
           $limit: numLimit,
         },
       ]),
-      // 2. Đếm tổng số document (Dùng countFilter)
       Transaction.countDocuments(countFilter),
     ]);
-    // --- KẾT THÚC THAY ĐỔI ---
 
-    // 📦 Trả kết quả (Giữ nguyên)
     res.json({
       data: transactions,
       total: total,
@@ -821,9 +716,8 @@ export const getTopTransactions = async (req: AuthRequest, res: Response) => {
 export const deleteLastTransaction = async (req: AuthRequest, res: Response) => {
   try {
     const user = req.user!;
-    const userId = user._id; // Lấy ID từ Token được giải mã
+    const userId = user._id; 
 
-    // 1. Tìm giao dịch mới nhất
     const lastTx = await Transaction.findOne({ user: userId })
       .sort({ createdAt: -1 })
       .populate("category", "name");
@@ -838,15 +732,12 @@ export const deleteLastTransaction = async (req: AuthRequest, res: Response) => 
 
     const savedGoalId = lastTx.goalId;
 
-    // 2. Xóa
     await Transaction.deleteOne({ _id: lastTx._id });
 
-    // 3. Tính lại Goal (nếu có)
     if (savedGoalId) {
       await recalculateGoalProgress(savedGoalId);
     }
 
-    // 4. Trả về thông tin giao dịch đã xóa để Chatbot hiển thị
     res.status(200).json({
       success: true,
       data: lastTx, 
@@ -862,25 +753,20 @@ export const deleteLastTransaction = async (req: AuthRequest, res: Response) => 
   }
 };
 
-// CANCEL RECURRING BY KEYWORD
-// src/controllers/transaction.controller.ts
-
 export const cancelRecurringByKeyword = async (req: AuthRequest, res: Response) => {
   try {
-    const { keyword } = req.query; // Nhận từ khóa từ Chatbot
+    const { keyword } = req.query; 
 
     if (!keyword) {
       res.status(400).json({ message: "Vui lòng cung cấp từ khóa tên gói (ví dụ: Netflix)" });
       return;
     }
 
-    // 1. Tìm bản ghi TEMPLATE dựa trên từ khóa
-    // (Template là bản ghi có isRecurring=true và date=null - hoặc logic template của bạn)
     const template = await Transaction.findOne({
       user: req.userId,
       isRecurring: true,
-      date: null, // Chỉ tìm template gốc
-      note: { $regex: keyword, $options: 'i' } // Tìm gần đúng, không phân biệt hoa thường
+      date: null,
+      note: { $regex: keyword, $options: 'i' } 
     });
 
     if (!template) {
@@ -890,26 +776,23 @@ export const cancelRecurringByKeyword = async (req: AuthRequest, res: Response) 
       return;
     }
 
-    // 2. Xóa bản ghi TEMPLATE (Để Cronjob không chạy nữa)
     await Transaction.deleteOne({ _id: template._id });
 
-    // 3. Cập nhật các giao dịch QUÁ KHỨ (để nó thành giao dịch thường)
     await Transaction.updateMany(
       {
         user: req.userId,
         recurringId: template.recurringId,
-        date: { $ne: null } // Chỉ update các bản ghi lịch sử
+        date: { $ne: null } 
       },
       {
         $set: {
           isRecurring: false,
-          note: `${template.note} (Đã dừng gia hạn)` // Đánh dấu lại cho rõ
+          note: `${template.note} (Đã dừng gia hạn)` 
         },
-        $unset: { recurringId: 1 } // Ngắt kết nối
+        $unset: { recurringId: 1 } 
       }
     );
 
-    // 4. Log lại hành động
     await logAction(req, {
       action: "Chatbot Cancel Recurring",
       statusCode: 200,
@@ -918,7 +801,7 @@ export const cancelRecurringByKeyword = async (req: AuthRequest, res: Response) 
 
     res.json({
       success: true,
-      data: template, // Trả về để chatbot hiển thị tên/số tiền
+      data: template, 
       message: "Đã dừng gói định kỳ thành công."
     });
 

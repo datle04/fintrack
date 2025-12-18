@@ -1,4 +1,3 @@
-// src/models/ChatHistory.ts
 import { timeStamp } from "console";
 import mongoose, { Schema, Document } from "mongoose";
 

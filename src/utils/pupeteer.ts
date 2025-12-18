@@ -1,17 +1,11 @@
-// utils/puppeteer.ts (hoặc file cũ của bạn)
 import puppeteer, { Page } from 'puppeteer';
 import fs from 'fs';
 import path from 'path';
-import { getBrowser } from './browser'; // <-- Import trình duyệt dùng chung
+import { getBrowser } from './browser'; 
 
-// --- TỐI ƯU 1: CACHE CSS ---
-// Đọc CSS một lần duy nhất khi server khởi động
-const cssPath = path.join(__dirname, './tailwind-report.css');// <-- Đường dẫn file CSS đã purge
+const cssPath = path.join(__dirname, './tailwind-report.css');
 const tailwindCSS = fs.readFileSync(cssPath, 'utf8');
 
-/**
- * Tạo một chuỗi HTML hoàn chỉnh, sẵn sàng để "in"
- */
 const createFullHtml = (htmlBody: string, month: string, year: string): string => {
   return `
     <!DOCTYPE html>
@@ -35,23 +29,15 @@ const createFullHtml = (htmlBody: string, month: string, year: string): string =
   `;
 };
 
-/**
- * Hàm generatePDF đã được tối ưu
- */
 export const generatePDF = async (htmlBody: string, month: string, year: string) => {
-  // --- TỐI ƯU 4: DÙNG TRÌNH DUYỆT CHUNG ---
   const browser = await getBrowser();
   const page: Page = await browser.newPage();
 
   try {
-    // Tạo HTML đầy đủ
     const fullHtml = createFullHtml(htmlBody, month, year);
 
-    // Tải nội dung
-    // 'networkidle0' là CẦN THIẾT để chờ Google Fonts tải xong
     await page.setContent(fullHtml, { waitUntil: 'load' });
 
-    // --- TỐI ƯU 5: THÊM HEADER/FOOTER VÀ SỐ TRANG ---
     const footerTemplate = `
       <div style="font-family: Arial, sans-serif; font-size: 9px; text-align: center; width: 100%; color: #888; padding: 0 40px;">
         Báo cáo tháng ${month}/${year}
@@ -66,21 +52,21 @@ export const generatePDF = async (htmlBody: string, month: string, year: string)
       printBackground: true,
       margin: {
         top: '40px',
-        bottom: '60px', // Thêm lề dưới để chứa footer
+        bottom: '60px', 
         left: '40px',
         right: '40px',
       },
       displayHeaderFooter: true,
-      headerTemplate: '<div></div>', // Header rỗng
-      footerTemplate: footerTemplate, // Dùng footer có số trang
+      headerTemplate: '<div></div>', 
+      footerTemplate: footerTemplate, 
     });
 
     return pdfBuffer;
 
   } catch (error) {
     console.error("❌ Lỗi khi tạo PDF:", error);
-    throw error; // Ném lỗi để controller bắt được
+    throw error; 
   } finally {
-    await page.close(); // <-- Chỉ đóng trang, không đóng trình duyệt
+    await page.close(); 
   }
 };

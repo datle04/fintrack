@@ -9,9 +9,7 @@ import { sendOTPEmail } from '../services/email.service';
 const JWT_SECRET = process.env.JWT_SECRET!;
 
 const ACCESS_TOKEN_SECRET = process.env.JWT_SECRET!;
-const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET!; // <-- Bạn cần thêm biến này vào .env
-
-// Thời gian hết hạn (ví dụ)
+const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET!; 
 const ACCESS_TOKEN_EXPIRY = process.env.ACCESS_TOKEN_EXPIRY!;
 const REFRESH_TOKEN_EXPIRY = process.env.REFRESH_TOKEN_EXPIRY!;
 
@@ -68,7 +66,6 @@ export const register = async (req: Request, res: Response): Promise<any> => {
 };
 
 // Đăng nhập
-// --- HÀM LOGIN ĐÃ CẬP NHẬT ---
 export const login = async (req: Request, res: Response) => {
   const { email, password } = req.body;
   if (!email || !password){
@@ -94,8 +91,6 @@ export const login = async (req: Request, res: Response) => {
       return;
     }
       
-
-    // === Tạo access & refresh token ===
     const accessToken = jwt.sign(
       { id: user._id, role: user.role },
       ACCESS_TOKEN_SECRET,
@@ -108,23 +103,21 @@ export const login = async (req: Request, res: Response) => {
       { expiresIn: REFRESH_TOKEN_EXPIRY } as SignOptions
     );
 
-    // === Lưu refresh token vào DB ===
     user.refreshToken = refreshToken;
     await user.save();
 
-    // === Gửi cookie HTTP-only ===
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: true,
       sameSite: "none",
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 ngày
+      maxAge: 7 * 24 * 60 * 60 * 1000 
     });
 
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
       secure: true,
       sameSite: "none",
-      maxAge: 15 * 60 * 1000 // 15 phút
+      maxAge: 15 * 60 * 1000 
     });
 
     await logAction(req, {
@@ -133,7 +126,6 @@ export const login = async (req: Request, res: Response) => {
       description: `User ${user.email} đăng nhập thành công`
     });
 
-    // === Trả thông tin user ===
     res.status(200).json({
       message: 'Đăng nhập thành công',
       user: {
@@ -160,7 +152,6 @@ export const login = async (req: Request, res: Response) => {
   }
 };
 
-// --- HÀM REFRESH TOKEN MỚI ---
 export const refreshToken = async (req: Request, res: Response) => {
   const incomingRefreshToken = req.cookies.refreshToken;
   if (!incomingRefreshToken){
@@ -179,8 +170,6 @@ export const refreshToken = async (req: Request, res: Response) => {
       return;
     }
       
-
-    // === Tạo token mới ===
     const newAccessToken = jwt.sign(
       { id: user._id, role: user.role },
       ACCESS_TOKEN_SECRET,
@@ -196,7 +185,6 @@ export const refreshToken = async (req: Request, res: Response) => {
     user.refreshToken = newRefreshToken;
     await user.save();
 
-    // === Set lại cookie ===
     res.cookie('refreshToken', newRefreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -218,7 +206,6 @@ export const refreshToken = async (req: Request, res: Response) => {
   }
 };
 
-// 1️⃣ API 1: Yêu cầu đổi mật khẩu (Gửi OTP)
 export const requestChangePassword = async (req: AuthRequest, res: Response) => {
   try {
     const { oldPassword } = req.body;
@@ -230,26 +217,21 @@ export const requestChangePassword = async (req: AuthRequest, res: Response) => 
       return;
     } 
 
-    // Kiểm tra pass cũ
     const isMatch = await bcrypt.compare(oldPassword, user.password);
     if (!isMatch){
       res.status(400).json({ message: "Mật khẩu cũ không đúng" });
       return; 
     } 
 
-    // Sinh OTP 6 số ngẫu nhiên
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     
-    // Mã hóa OTP trước khi lưu DB (Bảo mật cao)
     const salt = await bcrypt.genSalt(10);
     const hashedOTP = await bcrypt.hash(otp, salt);
 
-    // Lưu OTP vào DB (Hết hạn sau 5 phút)
     user.otp = hashedOTP;
     user.otpExpires = new Date(Date.now() + 5 * 60 * 1000); 
     await user.save();
 
-    // Gửi Email
     await sendOTPEmail(user.email, otp);
 
     res.json({ message: "Mã OTP đã được gửi đến email của bạn. Vui lòng kiểm tra." });
@@ -259,7 +241,6 @@ export const requestChangePassword = async (req: AuthRequest, res: Response) => 
   }
 };
 
-// 2️⃣ API 2: Xác nhận OTP và Đổi mật khẩu
 export const verifyAndChangePassword = async (req: AuthRequest, res: Response) => {
   try {
     const { otp, newPassword } = req.body;
@@ -271,24 +252,20 @@ export const verifyAndChangePassword = async (req: AuthRequest, res: Response) =
       return;
     }  
 
-    // Kiểm tra thời hạn OTP
     if (!user.otpExpires || user.otpExpires < new Date()) {
       res.status(400).json({ message: "Mã OTP đã hết hạn. Vui lòng thử lại." });
       return;
     }
 
-    // Kiểm tra mã OTP
     const isOtpMatch = await bcrypt.compare(otp, user.otp || "");
     if (!isOtpMatch) {
       res.status(400).json({ message: "Mã OTP không chính xác" });
       return;
     }
 
-    // --- Đổi mật khẩu ---
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(newPassword, salt);
 
-    // Xóa OTP sau khi dùng xong
     user.otp = undefined;
     user.otpExpires = undefined;
     await user.save();
@@ -306,35 +283,25 @@ export const verifyAndChangePassword = async (req: AuthRequest, res: Response) =
   }
 };
 
-// 1️⃣ API 1: Yêu cầu lấy lại mật khẩu
-// Route: POST /api/auth/forgot-password
-// Body: { email: "user@gmail.com" }
 export const forgotPassword = async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
 
-    // 1. Tìm user theo Email (Vì chưa đăng nhập nên không có req.userId)
     const user = await User.findOne({ email });
-    
-    // ⚠️ BẢO MẬT: Để tránh hacker dò email (Enumeration Attack)
-    // Dù tìm thấy hay không, vẫn nên trả về 1 thông báo chung chung.
-    // Tuy nhiên, với đồ án, bạn có thể return 404 để dễ debug.
+
     if (!user) {
       res.status(404).json({ message: "Email này chưa được đăng ký." });
       return;
     }
 
-    // 2. Sinh OTP và Mã hóa (Giống hệt phần đổi mật khẩu)
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const salt = await bcrypt.genSalt(10);
     const hashedOTP = await bcrypt.hash(otp, salt);
 
-    // 3. Lưu OTP vào DB
     user.otp = hashedOTP;
-    user.otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 phút
+    user.otpExpires = new Date(Date.now() + 5 * 60 * 1000); 
     await user.save();
 
-    // 4. Gửi Email (Dùng lại service cũ)
     await sendOTPEmail(email, otp);
 
     res.json({ message: "Mã xác thực đã được gửi vào email của bạn." });
@@ -344,38 +311,31 @@ export const forgotPassword = async (req: Request, res: Response) => {
   }
 };
 
-// 2️⃣ API 2: Đặt lại mật khẩu mới
-// Route: POST /api/auth/reset-password
-// Body: { email: "...", otp: "...", newPassword: "..." }
+
 export const resetPassword = async (req: Request, res: Response) => {
   try {
     const { email, otp, newPassword } = req.body;
 
-    // 1. Tìm user theo Email kèm các trường ẩn
     const user = await User.findOne({ email }).select("+otp +otpExpires");
     if (!user) {
         res.status(404).json({ message: "Người dùng không tồn tại" });
         return;
     }
 
-    // 2. Kiểm tra hạn OTP
     if (!user.otpExpires || user.otpExpires < new Date()) {
       res.status(400).json({ message: "Mã OTP đã hết hạn." });
       return;
     }
 
-    // 3. Kiểm tra mã OTP
     const isMatch = await bcrypt.compare(otp, user.otp || "");
     if (!isMatch) {
       res.status(400).json({ message: "Mã OTP không chính xác." });
       return;
     }
 
-    // 4. Hash mật khẩu MỚI
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(newPassword, salt);
 
-    // 5. Dọn dẹp OTP
     user.otp = undefined;
     user.otpExpires = undefined;
     await user.save();
@@ -387,35 +347,29 @@ export const resetPassword = async (req: Request, res: Response) => {
   }
 };
 
-// --- HÀM LOGOUT MỚI ---
 export const logout = async (req: Request, res: Response) => {
-  // Lấy refresh token từ body (để biết user nào logout)
   const { refreshToken } = req.body;
 
-  // Xóa cookie accessToken bất kể có refresh token hay không
   res.clearCookie('accessToken', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
-    // path: '/' // Đảm bảo path khớp với lúc set cookie
   });
 
   if (!refreshToken) {
-    // Nếu không có refresh token, chỉ xóa cookie là đủ
     res.status(200).json({ message: 'Đã đăng xuất (chỉ xóa cookie)' });
     return;
   }
 
   try {
-    // Tìm user dựa trên refresh token và xóa nó khỏi DB
     const user = await User.findOneAndUpdate(
-      { refreshToken: refreshToken }, // Tìm user có token này
-      { $unset: { refreshToken: "" } } // Xóa trường refreshToken
+      { refreshToken: refreshToken }, 
+      { $unset: { refreshToken: "" } } 
     );
 
     if (user) {
       console.log(`[Auth] Đã xóa refresh token cho user ${user.email} khi đăng xuất`);
-      await logAction(req, { // Log hành động logout
+      await logAction(req, { 
           action: 'Logout Success',
           statusCode: 200,
           description: `User ${user.email} đăng xuất thành công`,
@@ -440,8 +394,6 @@ export const logout = async (req: Request, res: Response) => {
         description: 'Lỗi server khi xử lý logout',
         level: 'error'
     });
-    // Vẫn trả về thành công vì cookie đã bị xóa
     res.status(200).json({ message: 'Đăng xuất thành công (có lỗi khi xóa token DB)' });
   }
 };
-// --- KẾT THÚC HÀM LOGOUT ---

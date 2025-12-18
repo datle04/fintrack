@@ -1,20 +1,18 @@
 import nodemailer from "nodemailer";
 
-// Cấu hình transporter
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
-  port: 2525, // 👈 QUAN TRỌNG: Bắt buộc dùng 2525 trên Render
-  secure: false, // Port 2525 không dùng SSL mặc định, nó dùng STARTTLS
+  port: 2525, 
+  secure: false, 
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
   tls: {
-    rejectUnauthorized: false // Thêm dòng này để tránh lỗi chứng chỉ SSL nếu có
+    rejectUnauthorized: false 
   }
 });
 
-// 2. Hàm gửi email CHUNG (Dùng cho thông báo Cấm/Xóa...)
 interface EmailOptions {
   to: string;
   subject: string;
@@ -24,7 +22,7 @@ interface EmailOptions {
 export const sendEmail = async ({ to, subject, html }: EmailOptions) => {
   try {
     const mailOptions = {
-      from: `"FinTrack Admin" <ldat0909@gmail.com>`, // 👈 QUAN TRỌNG: Email Gmail thật
+      from: `"FinTrack Admin" <ldat0909@gmail.com>`,
       to,
       subject,
       html,
