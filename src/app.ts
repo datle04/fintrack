@@ -38,6 +38,10 @@ app.use('/static', express.static(path.join(__dirname, '../public')));
 app.use(generalLimiter);
 // app.use(xssMiddleware);
 
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ status: 'Ok', message: 'Server is awake (Keep-Alive)!' });
+});
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/transaction', transactionRoutes);
