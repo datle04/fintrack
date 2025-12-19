@@ -11,6 +11,7 @@ import mongoose, { Types } from 'mongoose';
 import axios from "axios";
 import Goal from '../models/Goal';
 import { recalculateGoalProgress, updateGoalProgress } from '../services/goal.service';
+import sanitizeHtml from 'sanitize-html'
 
 // Hàm xử lý chung để lấy tỷ giá và chuẩn bị dữ liệu giao dịch
 export const processTransactionData = async (data: any) => {
@@ -36,17 +37,22 @@ export const createTransaction = async (req: AuthRequest, res: Response): Promis
       console.log("📂 Files received:", req.files);
       console.log("📝 Body received:", req.body);
 
-        const {
-            amount,
-            type,
-            category,
-            note,
-            date,
-            recurringDay,
-            isRecurring,
-            currency, 
-            goalId,
-        } = req.body;
+      let {
+          amount,
+          type,
+          category,
+          note,
+          date,
+          recurringDay,
+          isRecurring,
+          currency, 
+          goalId,
+      } = req.body;
+
+      note = sanitizeHtml(req.body.note, {
+        allowedTags: [], 
+        allowedAttributes: {}
+      });
 
         if (amount < 0) {
             res.status(400).json({ message: "Số tiền không hợp lệ!" });
