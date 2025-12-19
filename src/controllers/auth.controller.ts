@@ -117,7 +117,7 @@ export const login = async (req: Request, res: Response) => {
       httpOnly: true,
       secure: true,
       sameSite: "none",
-      maxAge: 15 * 60 * 1000 
+      maxAge: 30 * 60 * 1000 
     });
 
     await logAction(req, {
@@ -196,7 +196,7 @@ export const refreshToken = async (req: Request, res: Response) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 15 * 60 * 1000
+      maxAge: 30 * 60 * 1000
     });
 
     res.status(200).json({ message: 'Làm mới token thành công' });

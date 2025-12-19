@@ -46,7 +46,10 @@ const transactionSchema = new Schema<ITransaction> (
             default: null
         }
     },
-    {timestamps: true}
+    {
+        timestamps: true,
+        optimisticConcurrency: true
+    }
 );
 
 // Dashboard chính (Tìm theo ngày)

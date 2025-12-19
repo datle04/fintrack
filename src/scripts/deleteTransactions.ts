@@ -1,35 +1,50 @@
-import mongoose from "mongoose";
-import dotenv from "dotenv";
-dotenv.config();
+import mongoose from 'mongoose';
+// ⚠️ LƯU Ý: Hãy trỏ đúng đường dẫn đến file Model Transaction của bạn
+import Transaction from '../models/Transaction'; 
 
-import Transaction from "../models/Transaction";
+// ----------------------------------------------------------------------
+// CONFIGURATION
+// ----------------------------------------------------------------------
+const USER_ID = "6933edda5f0184301a4616cb";
+const YEAR = 2025;
+const MONGO_URI = "mongodb+srv://ldat0909:Letandat31102004@cluster0.3wglbsv.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"; // 🔥 Đổi URI nếu cần
 
-const deleteTransactionsInSpecificMonths = async () => {
-  try {
-    await mongoose.connect(process.env.MONGODB_URI!);
-    console.log("✅ Kết nối MongoDB thành công!");
+const cleanTransactions = async () => {
+    try {
+        console.log("🚀 Đang kết nối MongoDB...");
+        await mongoose.connect(MONGO_URI);
+        console.log("✅ Kết nối thành công!");
 
-    // Tạo điều kiện lọc các tháng 1, 3, 5 của năm hiện tại
-    const year = new Date().getFullYear();
+        // Logic xác định thời gian:
+        // Start: Ngày 1 tháng 1 (Tháng 0 trong JS)
+        const startDate = new Date(YEAR, 0, 1); 
+        
+        // End: Ngày 1 tháng 12 (Tháng 11 trong JS)
+        // Dùng toán tử nhỏ hơn ($lt) ngày 1/12 sẽ tự động lấy hết ngày 30/11
+        const endDate = new Date(YEAR, 11, 1); 
 
-    const monthsToDelete = [0, 2, 4]; // Tháng 1, 3, 5
-    const conditions = monthsToDelete.map((month) => {
-      const start = new Date(year, month, 1);
-      const end = new Date(year, month + 1, 1);
-      return {
-        date: { $gte: start, $lt: end },
-      };
-    });
+        console.log(`🧹 Đang tiến hành xóa giao dịch của User: ${USER_ID}`);
+        console.log(`📅 Phạm vi: Từ [${startDate.toLocaleDateString()}] đến trước [${endDate.toLocaleDateString()}]`);
 
-    const result = await Transaction.deleteMany({
-      $or: conditions,
-    });
+        const result = await Transaction.deleteMany({
+            user: USER_ID,
+            date: {
+                $gte: startDate, // Lớn hơn hoặc bằng 1/1
+                $lt: endDate     // Nhỏ hơn 1/12 (Tức là lấy hết tháng 11)
+            }
+        });
 
-    console.log(`🗑️ Đã xoá ${result.deletedCount} giao dịch ở các tháng 1, 3, 5!`);
-    await mongoose.disconnect();
-  } catch (err) {
-    console.error("❌ Lỗi khi xoá giao dịch:", err);
-  }
+        console.log("------------------------------------------------");
+        console.log(`✅ ĐÃ HOÀN TẤT!`);
+        console.log(`🗑️  Số lượng giao dịch đã xóa: ${result.deletedCount}`);
+        console.log("------------------------------------------------");
+
+        process.exit(0);
+
+    } catch (error) {
+        console.error("❌ Lỗi khi xóa dữ liệu:", error);
+        process.exit(1);
+    }
 };
 
-deleteTransactionsInSpecificMonths();
+cleanTransactions();
